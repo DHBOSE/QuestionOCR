@@ -45,9 +45,21 @@
 
 ## 快速开始（Windows）
 
+### 一键安装（推荐）
+
+克隆仓库后，双击项目根目录的 **`一键安装.bat`**，自动完成全部部署：
+
+1. 检查 Python（需 3.10+）
+2. 创建虚拟环境 `backend\.venv`
+3. 安装 CPU 版 PyTorch 与全部 Python 依赖（含 UniMERNet 公式引擎，首次约 5-15 分钟）
+4. 构建前端 `frontend\dist`（需 Node.js 18+）
+5. 检查并可选自动安装 Pandoc
+
+安装结束后可直接选择启动程序。
+
 ### 一键启动
 
-完成下方「手动安装」的首次依赖安装后，双击项目根目录的 **`启动.bat`**：
+完成首次安装后，双击项目根目录的 **`启动.bat`**：
 服务以**无窗口方式**后台静默启动（单进程，8000 端口同时提供页面和 API），并自动打开浏览器。
 停止服务双击 **`停止服务.bat`**；运行日志见 `backend/backend.log` 与 `backend/console.log`。
 
@@ -62,6 +74,8 @@ python -m venv .venv
 # 建议先装 CPU 版 PyTorch（体积小很多）：
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
+# UniMERNet 声明的 transformers 版本与本项目冲突，需单独 --no-deps 安装：
+pip install unimernet==0.2.3 --no-deps
 ```
 
 > 已知兼容组合：torch 2.5.1+cpu / torchvision 0.20.1 / onnxruntime 1.20.1 / transformers 4.46.3。

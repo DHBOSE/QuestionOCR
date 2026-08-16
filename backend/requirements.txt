@@ -8,9 +8,20 @@ python-multipart>=0.0.9  # FastAPI 文件上传必需
 pix2text>=1.1
 
 # UniMERNet 公式二次识别引擎（pix2tex 失败时的兜底）
-# 注意：unimernet 声明依赖 transformers==4.42.4，但与 pix2text 冲突，
-# 本项目固定使用 transformers 4.46.3 并通过代码兼容（eager 注意力补丁）
-unimernet==0.2.3
+# 注意：unimernet 声明依赖 transformers==4.42.4，与本项目固定的 4.46.3 冲突，
+# 因此 unimernet 本身需单独安装（--no-deps），本项目通过代码兼容（eager 注意力补丁）：
+#   pip install unimernet==0.2.3 --no-deps
+# 以下是 unimernet 运行所需的依赖（替代其声明的传递依赖）：
+albumentations>=1.4.4,<2.0.0
+evaluate>=0.4.1,<0.5.0
+fairscale>=0.4.13,<0.5.0
+ftfy>=6.3.1,<7.0.0
+iopath>=0.1.9,<0.2.0
+matplotlib>=3.8.4,<4.0.0
+omegaconf>=2.3.0,<3.0.0
+opencv-python>=4.6.0,<5.0.0
+rapidfuzz>=3.8.1,<4.0.0
+timm>=0.9.16,<0.10.0
 transformers==4.46.3
 tokenizers==0.20.3
 
