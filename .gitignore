@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+
+# 任务临时文件
+backend/temp/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# 大文件（GitHub 单文件 100MB 限制，需另行获取，见 README「模型与组件下载」）
+backend/models/
+backend/pandoc/
+
+# 运行日志与本地统计
+backend/*.log
+backend/api_usage.json
+
+# 系统
+.DS_Store
+Thumbs.db

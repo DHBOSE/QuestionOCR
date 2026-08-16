@@ -1,0 +1,22 @@
+# Web 框架
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9  # FastAPI 文件上传必需
+
+# Pix2Text 核心识别（版面分析 + 文字 OCR + 公式初识别）
+# 首次运行会自动下载模型（约 1-2GB），请保持网络畅通
+pix2text>=1.1
+
+# UniMERNet 公式二次识别引擎（pix2tex 失败时的兜底）
+# 注意：unimernet 声明依赖 transformers==4.42.4，但与 pix2text 冲突，
+# 本项目固定使用 transformers 4.46.3 并通过代码兼容（eager 注意力补丁）
+unimernet==0.2.3
+transformers==4.46.3
+tokenizers==0.20.3
+
+# 图像处理
+Pillow>=10.0
+numpy
+
+# docx 转 PDF（COM 自动化驱动本机 Word / WPS，Windows 专用）
+pywin32>=306; sys_platform == "win32"

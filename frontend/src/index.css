@@ -1,0 +1,677 @@
+/* 全局样式：浅色背景、卡片阴影、整体居中布局 */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* 浅色渐变背景：衬托卡片的毛玻璃模糊效果 */
+  background: linear-gradient(135deg, #e8ecff 0%, #f3f5fa 45%, #e2edfb 100%);
+  background-attachment: fixed;
+  color: #1f2329;
+}
+
+.app-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+  /* 抬到 WebGL 背景之上 */
+  position: relative;
+  z-index: 1;
+}
+
+/* 全屏 WebThreads 丝线背景：固定在视口，不拦截任何鼠标交互 */
+.app-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.app-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: 1px;
+}
+
+.app-header p {
+  color: #6b7280;
+  margin: 0;
+}
+
+/* 毛玻璃拟态卡片：半透明白 + 背景模糊 + 大柔阴影，
+   悬停放大 + 深色描边，按下轻微回弹旋转（0.5s 平滑过渡） */
+.main-card {
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 12px 17px 51px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 17px;
+  padding: 28px;
+  margin-bottom: 22px;
+  transition: all 0.5s;
+}
+
+.main-card:hover {
+  border: 1px solid rgba(31, 35, 41, 0.65);
+  transform: scale(1.02);
+}
+
+.main-card:active {
+  transform: scale(0.98) rotateZ(0.6deg);
+  transition: all 0.15s;
+}
+
+/* 第二行两栏布局：左输出设置 / 右处理进度（第一行上传为整行卡片） */
+.row-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  align-items: stretch; /* 两张卡片等高对齐 */
+}
+
+.row-grid .main-card {
+  margin-bottom: 0; /* 间距统一由 gap 控制 */
+}
+
+/* 输出设置：每个设置项独占一行，标签固定宽度左对齐 */
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.setting-label {
+  flex-shrink: 0;
+  width: 90px;
+  white-space: nowrap; /* 防止"输出文件："这类五个字的标签折行 */
+  color: rgba(0, 0, 0, 0.65);
+}
+
+/* ---------------------------------------------------------------- */
+/* 下划线动画输入框（浅色主题版）                                       */
+/* 默认只有一条浅灰下划线；hover 显示淡蓝底色；                         */
+/* 聚焦时下划线从左侧蓝色展开（0.3s 过渡）。                             */
+/* 用法：把 antd Input / Input.Password 包在 .underline-field 容器里。  */
+/* ---------------------------------------------------------------- */
+.underline-field {
+  --border-before-color: rgba(0, 0, 0, 0.15);
+  --border-after-color: #5891ff;
+  --input-hovered-color: #4985e01f;
+  position: relative;
+  display: inline-block;
+}
+
+/* 动画下划线（聚焦时展开） */
+.underline-field::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 2px;
+  background: var(--border-after-color);
+  transition: width 0.3s;
+}
+
+.underline-field:focus-within::after {
+  width: 100%;
+}
+
+/* 普通输入框：去边框去阴影，只保留下划线 */
+.underline-field .ant-input,
+.underline-field .ant-input-group .ant-input {
+  color: #1f2329;
+  font-size: 0.9rem;
+  background-color: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-before-color);
+  border-radius: 0;
+  box-shadow: none;
+  padding-inline: 0.5em;
+  padding-block: 0.5em;
+}
+
+/* 后缀（.docx）与密码框可见性图标：透明化并共用下划线 */
+.underline-field .ant-input-group-addon {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-before-color);
+  border-radius: 0;
+  color: #6b7280;
+}
+
+/* 密码框（affix 包裹结构）：边框在 wrapper 上，同样改为下划线 */
+.underline-field .ant-input-affix-wrapper {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-before-color);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.underline-field .ant-input-affix-wrapper .ant-input {
+  border-bottom: none; /* 密码框内部 input 不再重复划线 */
+}
+
+.underline-field .ant-input-affix-wrapper-focused,
+.underline-field .ant-input-affix-wrapper:focus,
+.underline-field .ant-input:focus,
+.underline-field .ant-input-focused {
+  box-shadow: none;
+  outline: none;
+}
+
+/* hover 淡蓝底色 */
+.underline-field .ant-input:hover,
+.underline-field .ant-input-affix-wrapper:hover {
+  background: var(--input-hovered-color);
+}
+
+/* 禁用态保持透明，不出现灰底 */
+.underline-field .ant-input[disabled],
+.underline-field .ant-input-affix-wrapper-disabled {
+  background: transparent;
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* 窄屏（< 900px）时退化为单列 */
+@media (max-width: 900px) {
+  .row-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: #4f6ef7;
+}
+
+/* 日志区域 */
+.log-view {
+  background: #f8fafc;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  height: 220px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line-success {
+  color: #16a34a;
+}
+
+.log-line-error {
+  color: #dc2626;
+}
+
+.log-line-info {
+  color: #374151;
+}
+
+/* 缩略图列表 */
+.thumb-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.thumb-item {
+  position: relative;
+  width: 118px;
+  text-align: center;
+}
+
+.thumb-item img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e5e9f0;
+  cursor: zoom-in;
+}
+
+/* PDF / Word 文件的图标占位（与图片缩略图同尺寸） */
+.thumb-file-icon {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto;
+  border-radius: 8px;
+  border: 1px solid #e5e9f0;
+  background: #f6f8ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: #4f6ef7;
+}
+
+.thumb-name {
+  font-size: 12px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+
+/* 每题识别引擎切换（本地 / API） */
+.thumb-item .ant-segmented {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.failed-list {
+  color: #dc2626;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+/* ---------------------------------------------------------------- */
+/* 玻璃质感按钮（移植自 styled-components 版本，适配浅色主题）            */
+/* 结构：.glass-btn-wrap > button > span + .button-shadow              */
+/* 效果：锥形渐变旋转描边、悬停扫光与微缩、按下 3D 倾斜 + 投影变化        */
+/* ---------------------------------------------------------------- */
+@property --angle-1 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: -75deg;
+}
+
+@property --angle-2 {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: -45deg;
+}
+
+.glass-btn-wrap {
+  --anim--hover-time: 400ms;
+  --anim--hover-ease: cubic-bezier(0.25, 1, 0.5, 1);
+  position: relative;
+  display: inline-block;
+  z-index: 2;
+  border-radius: 999vw;
+  background: transparent;
+  pointer-events: none;
+  font-size: 15px; /* 原式用 em 相对单位，这里定基准字号 */
+  transition: all var(--anim--hover-time) var(--anim--hover-ease);
+}
+
+/* 投影容器（超出按钮范围，用模糊制造柔和投影） */
+.glass-btn-wrap .button-shadow {
+  --shadow-cuttoff-fix: 2em;
+  position: absolute;
+  width: calc(100% + var(--shadow-cuttoff-fix));
+  height: calc(100% + var(--shadow-cuttoff-fix));
+  top: calc(0% - var(--shadow-cuttoff-fix) / 2);
+  left: calc(0% - var(--shadow-cuttoff-fix) / 2);
+  filter: blur(clamp(2px, 0.125em, 12px));
+  -webkit-filter: blur(clamp(2px, 0.125em, 12px));
+  overflow: visible;
+  pointer-events: none;
+}
+
+.glass-btn-wrap .button-shadow::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: 999vw;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.1));
+  width: calc(100% - var(--shadow-cuttoff-fix) - 0.25em);
+  height: calc(100% - var(--shadow-cuttoff-fix) - 0.25em);
+  top: calc(var(--shadow-cuttoff-fix) - 0.5em);
+  left: calc(var(--shadow-cuttoff-fix) - 0.875em);
+  padding: 0.125em;
+  box-sizing: border-box;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  transition: all var(--anim--hover-time) var(--anim--hover-ease);
+  overflow: visible;
+  opacity: 1;
+}
+
+/* 按钮本体：玻璃渐变底 + 内阴影高光 */
+.glass-btn-wrap button {
+  --border-width: clamp(1px, 0.0625em, 4px);
+  all: unset;
+  cursor: pointer;
+  position: relative;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  pointer-events: auto;
+  z-index: 3;
+  background: linear-gradient(
+    -75deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.2),
+    rgba(255, 255, 255, 0.05)
+  );
+  border-radius: 999vw;
+  box-shadow:
+    inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+    inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+    0 0.25em 0.125em -0.125em rgba(0, 0, 0, 0.2),
+    0 0 0.1em 0.25em inset rgba(255, 255, 255, 0.2),
+    0 0 0 0 rgba(255, 255, 255, 1);
+  backdrop-filter: blur(clamp(1px, 0.125em, 4px));
+  -webkit-backdrop-filter: blur(clamp(1px, 0.125em, 4px));
+  transition: all var(--anim--hover-time) var(--anim--hover-ease);
+}
+
+.glass-btn-wrap button:hover {
+  transform: scale(0.975);
+  backdrop-filter: blur(0.01em);
+  -webkit-backdrop-filter: blur(0.01em);
+  box-shadow:
+    inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+    inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+    0 0.15em 0.05em -0.1em rgba(0, 0, 0, 0.25),
+    0 0 0.05em 0.1em inset rgba(255, 255, 255, 0.5),
+    0 0 0 0 rgba(255, 255, 255, 1);
+}
+
+/* 按钮文字 */
+.glass-btn-wrap button span {
+  position: relative;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  font-size: 1em;
+  text-align: center; /* 纯文字按钮：文字居中 */
+  min-width: 5.5em;   /* 三个按钮排一行时宽度视觉统一 */
+  color: rgba(50, 50, 50, 1);
+  -webkit-font-smoothing: antialiased;
+  text-shadow: 0 0.25em 0.05em rgba(0, 0, 0, 0.1);
+  transition: all var(--anim--hover-time) var(--anim--hover-ease);
+  padding-inline: 1.5em;
+  padding-block: 0.7em;
+}
+
+.glass-btn-wrap button:hover span {
+  text-shadow: 0.025em 0.025em 0.025em rgba(0, 0, 0, 0.12);
+}
+
+/* 图标与文字间距 */
+.glass-btn-wrap .glass-btn-icon {
+  display: inline-flex;
+  margin-right: 0.45em;
+  font-style: normal;
+  vertical-align: -0.08em;
+}
+
+/* 文字上的扫光层 */
+.glass-btn-wrap button span::after {
+  content: '';
+  display: block;
+  position: absolute;
+  z-index: 3;
+  width: calc(100% - var(--border-width));
+  height: calc(100% - var(--border-width));
+  top: calc(0% + var(--border-width) / 2);
+  left: calc(0% + var(--border-width) / 2);
+  box-sizing: border-box;
+  border-radius: 999vw;
+  overflow: clip;
+  background: linear-gradient(
+    var(--angle-2),
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.5) 40% 50%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  mix-blend-mode: screen;
+  pointer-events: none;
+  background-size: 200% 200%;
+  background-position: 0% 50%;
+  background-repeat: no-repeat;
+  transition:
+    background-position calc(var(--anim--hover-time) * 1.25) var(--anim--hover-ease),
+    --angle-2 calc(var(--anim--hover-time) * 1.25) var(--anim--hover-ease);
+}
+
+.glass-btn-wrap button:hover span::after {
+  background-position: 25% 50%;
+}
+
+.glass-btn-wrap button:active span::after {
+  background-position: 50% 15%;
+  --angle-2: -15deg;
+}
+
+/* 旋转描边（锥形渐变光环） */
+.glass-btn-wrap button::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: 999vw;
+  width: calc(100% + var(--border-width));
+  height: calc(100% + var(--border-width));
+  top: calc(0% - var(--border-width) / 2);
+  left: calc(0% - var(--border-width) / 2);
+  padding: var(--border-width);
+  box-sizing: border-box;
+  background:
+    conic-gradient(
+      from var(--angle-1) at 50% 50%,
+      rgba(0, 0, 0, 0.5),
+      rgba(0, 0, 0, 0) 5% 40%,
+      rgba(0, 0, 0, 0.5) 50%,
+      rgba(0, 0, 0, 0) 60% 95%,
+      rgba(0, 0, 0, 0.5)
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5));
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  transition:
+    all var(--anim--hover-time) var(--anim--hover-ease),
+    --angle-1 500ms ease;
+  box-shadow: inset 0 0 0 calc(var(--border-width) / 2) rgba(255, 255, 255, 0.5);
+}
+
+.glass-btn-wrap button:hover::after {
+  --angle-1: -125deg;
+}
+
+.glass-btn-wrap button:active::after {
+  --angle-1: -75deg;
+}
+
+/* 悬停时投影收敛 */
+.glass-btn-wrap:has(button:hover) .button-shadow {
+  filter: blur(clamp(2px, 0.0625em, 6px));
+  -webkit-filter: blur(clamp(2px, 0.0625em, 6px));
+  transition: filter var(--anim--hover-time) var(--anim--hover-ease);
+}
+
+.glass-btn-wrap:has(button:hover) .button-shadow::after {
+  top: calc(var(--shadow-cuttoff-fix) - 0.875em);
+  opacity: 1;
+}
+
+/* 按下：整体 3D 倾斜 + 投影回位 */
+.glass-btn-wrap:has(button:active) {
+  transform: rotate3d(1, 0, 0, 25deg);
+}
+
+.glass-btn-wrap:has(button:active) button {
+  box-shadow:
+    inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+    inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+    0 0.125em 0.125em -0.125em rgba(0, 0, 0, 0.2),
+    0 0 0.1em 0.25em inset rgba(255, 255, 255, 0.2),
+    0 0.225em 0.05em 0 rgba(0, 0, 0, 0.05),
+    0 0.25em 0 0 rgba(255, 255, 255, 0.75),
+    inset 0 0.25em 0.05em 0 rgba(0, 0, 0, 0.15);
+}
+
+.glass-btn-wrap:has(button:active) .button-shadow {
+  filter: blur(clamp(2px, 0.125em, 12px));
+  -webkit-filter: blur(clamp(2px, 0.125em, 12px));
+}
+
+.glass-btn-wrap:has(button:active) .button-shadow::after {
+  top: calc(var(--shadow-cuttoff-fix) - 0.5em);
+  opacity: 0.75;
+}
+
+.glass-btn-wrap:has(button:active) button span {
+  text-shadow: 0.025em 0.25em 0.05em rgba(0, 0, 0, 0.12);
+}
+
+/* 触屏设备：固定描边角度（无 hover 状态） */
+@media (hover: none) and (pointer: coarse) {
+  .glass-btn-wrap button span::after,
+  .glass-btn-wrap button:active span::after {
+    --angle-2: -45deg;
+  }
+
+  .glass-btn-wrap button::after,
+  .glass-btn-wrap button:hover::after,
+  .glass-btn-wrap button:active::after {
+    --angle-1: -75deg;
+  }
+}
+
+/* 禁用态：变灰、禁止交互与动画 */
+.glass-btn-inactive button {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.glass-btn-inactive button:hover,
+.glass-btn-inactive button:active {
+  transform: none;
+}
+
+.glass-btn-inactive:has(button:active) {
+  transform: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* 识别预览卡片：玻璃特效（移植自 GLASS EFFECT 卡片）                    */
+/* 原式为深色背景小卡片（固定尺寸 + 白字），适配浅色大卡片：              */
+/* 文字保持深色、尺寸自适应内容、装饰元素不阻挡交互。                     */
+/* ---------------------------------------------------------------- */
+.preview-glass-card {
+  position: relative;
+  overflow: hidden; /* 装饰圆裁剪在圆角内 */
+  background: rgba(255, 255, 255, 0.35); /* 原式 0.074 在浅底上太透 */
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 0.7rem;
+  transition: all ease 0.3s;
+}
+
+/* 装饰：右上竖线 */
+.preview-glass-card::after {
+  content: '';
+  position: absolute;
+  height: 3rem;
+  top: 8%;
+  right: 5%;
+  border: 1px solid #fab57088;
+  pointer-events: none;
+}
+
+/* 悬停：暖色光晕 + 描边变亮（覆盖通用卡片的放大效果） */
+.preview-glass-card:hover {
+  box-shadow: 0 0 20px 1px #ffbb763f;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  transform: none;
+}
+
+.preview-glass-card:active {
+  transform: none;
+}
+
+/* 识别预览：左编辑 / 右预览并排 */
+.preview-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* 预览面板：模拟 Word 纸张效果 */
+.question-preview {
+  background: #fff;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  height: 320px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.9;
+  word-break: break-word;
+}
+
+.question-preview p {
+  margin: 0 0 8px;
+}
+
+/* 预览中的插图：限宽显示，保持比例 */
+.question-preview img {
+  max-width: 100%;
+  max-height: 220px;
+  display: block;
+  margin: 8px auto;
+  border-radius: 4px;
+}
+
+/* 公式渲染失败：红底标注原始 LaTeX */
+.question-preview .math-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+/* 窄屏时编辑/预览上下排列 */
+@media (max-width: 900px) {
+  .preview-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .question-preview {
+    height: 260px;
+  }
+}
