@@ -1,7 +1,7 @@
 // App.jsx —— 主页面
 // 布局：上方控制区（上传 + 输出设置 + 操作按钮），下方进度与日志区
 import React, { useEffect, useRef, useState } from 'react'
-import { Input, Select, Switch, message, Alert, Modal } from 'antd'
+import { Input, Select, message, Alert, Modal } from 'antd'
 import axios from 'axios'
 import Uploader from './components/Uploader'
 import ProgressBar from './components/ProgressBar'
@@ -372,11 +372,20 @@ export default function App() {
           </div>
           <div className="setting-row">
             <span className="setting-label">整页拆题：</span>
-            <Switch
-              checked={autoSplit}
-              onChange={setAutoSplit}
-              disabled={processing}
-            />
+            <div className={`flipswitch${processing ? ' flipswitch-disabled' : ''}`}>
+              <input
+                id="flipswitch-split"
+                className="flipswitch-cb"
+                type="checkbox"
+                checked={autoSplit}
+                onChange={(e) => setAutoSplit(e.target.checked)}
+                disabled={processing}
+              />
+              <label htmlFor="flipswitch-split" className="flipswitch-label">
+                <div className="flipswitch-inner" />
+                <div className="flipswitch-switch" />
+              </label>
+            </div>
             <span style={{ color: '#9ca3af', fontSize: 12 }}>
               一张截图含多道题时按题号自动拆开
             </span>
