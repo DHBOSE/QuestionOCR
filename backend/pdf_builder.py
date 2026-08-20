@@ -16,9 +16,10 @@ Word 中生成的公式是 OMML，只有真正的排版引擎才能高保真渲�
 
 import logging
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
+
+from procutil import run_quiet
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _convert_with_libreoffice(docx_path: Path, pdf_path: Path, log) -> None:
     profile = Path(tempfile.mkdtemp(prefix="lo_profile_"))
     try:
         out_dir = pdf_path.parent
-        result = subprocess.run(
+        result = run_quiet(
             [
                 soffice, "--headless", "--norestore",
                 f"-env:UserInstallation=file:///{profile.as_posix()}",

@@ -11,9 +11,10 @@ docx_builder.py —— 调用 Pandoc 将 Markdown 转为 Word (.docx)
 
 import re
 import shutil
-import subprocess
 import zipfile
 from pathlib import Path
+
+from procutil import run_quiet
 
 # 可选中文字体（写入 docx 的 w:eastAsia 属性），与前端下拉框保持一致
 AVAILABLE_FONTS = ["仿宋", "黑体", "楷体", "宋体", "微软雅黑", "等线"]
@@ -202,7 +203,7 @@ def markdown_to_docx(
         "--resource-path", str(resource_dir),  # 让 Pandoc 能找到裁剪出的图片
     ]
 
-    result = subprocess.run(
+    result = run_quiet(
         cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
     if result.returncode != 0:

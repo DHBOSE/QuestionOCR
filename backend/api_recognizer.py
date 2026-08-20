@@ -163,8 +163,20 @@ def _call_chat_completions(cfg: dict, image_path: str):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            # urllib 在 Windows 会自动读取系统代理；国内服务（如 DashScope）被
+            # 代理劫持而失败时（SSL EOF 等），自动回退为直连重试一次
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError:
+            raise  # HTTP 错误（鉴权/限流等）与代理无关，直接抛给外层
+        except (urllib.error.URLError, OSError) as first_err:
+            if not urllib.request.getproxies():
+                raise  # 系统没配代理，重试直连无意义
+            logger.info("经系统代理访问 API 失败（%s），改用直连重试……", first_err)
+            direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with direct.open(req, timeout=REQUEST_TIMEOUT) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")[:500]
         if e.code in (401, 403):
@@ -174,8 +186,8 @@ def _call_chat_completions(cfg: dict, image_path: str):
         raise RuntimeError(f"API 请求失败（HTTP {e.code}）：{detail}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"无法连接 API 服务（{cfg['base_url']}）：{e.reason}")
-    except TimeoutError:
-        raise RuntimeError(f"API 请求超时（>{REQUEST_TIMEOUT}s），请检查网络或更换服务商。")
+    except (TimeoutError, OSError) as e:
+        raise RuntimeError(f"API 请求失败（网络错误）：{e}")
 
     try:
         content = body["choices"][0]["message"]["content"]

@@ -15,12 +15,13 @@ recognizer.py —— 题目截图识别封装（Pix2Text + UniMERNet 双引擎�
 import re
 import os
 import logging
-import subprocess
 import threading
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+from procutil import run_quiet
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,7 @@ def pandoc_accepts(latex: str, display: bool = False) -> bool:
         return True
     wrapped = f"$${latex}$$" if display else f"${latex}$"
     try:
-        result = subprocess.run(
+        result = run_quiet(
             [pandoc, "-f", "markdown+tex_math_dollars", "-t", "native"],
             input=wrapped, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=15,

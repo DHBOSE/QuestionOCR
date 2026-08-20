@@ -15,8 +15,9 @@ doc_loader.py —— Word / PDF 文件直识别
 import logging
 import os
 import re
-import subprocess
 from pathlib import Path
+
+from procutil import run_quiet
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ def docx_to_questions(docx_path: str, task_dir: str, extract_name: str = "direct
         "--extract-media", str(extract_dir),  # 图片提取为 extract_dir/media/...
         "-o", str(md_path), docx_path,
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    proc = run_quiet(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0 or not md_path.exists():
         raise RuntimeError(f"Word 解析失败：{proc.stderr.strip()[:300] or '未知错误'}")
 

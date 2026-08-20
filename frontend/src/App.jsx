@@ -8,6 +8,7 @@ import ProgressBar from './components/ProgressBar'
 import LogView from './components/LogView'
 import DownloadBtn from './components/DownloadBtn'
 import QuestionPreview from './components/QuestionPreview'
+import DocPreview from './components/DocPreview'
 import ApiSettings, { loadApiConfig } from './components/ApiSettings'
 import HistoryPanel from './components/HistoryPanel'
 import GlassButton from './components/GlassButton'
@@ -76,6 +77,18 @@ export default function App() {
   const [apiModalOpen, setApiModalOpen] = useState(false)
   // 历史任务面板开关
   const [historyOpen, setHistoryOpen] = useState(false)
+  // 页眉 / 页脚：文字 + 可选图片（如校徽 logo），图片大小可调
+  const [headerSpec, setHeaderSpec] = useState({ text: '', image: '', size: 50 })
+  const [footerSpec, setFooterSpec] = useState({ text: '', image: '', size: 50 })
+  // 水印设置：type(none/text/image)、text、image(dataURL)、size(10-100)、opacity(5-100)、angle(-90~90)
+  const [watermark, setWatermark] = useState({
+    type: 'none',
+    text: '',
+    image: '',
+    size: 50,
+    opacity: 30,
+    angle: -45,
+  })
 
   // SSE 连接引用，便于组件卸载时关闭
   const eventSourceRef = useRef(null)
@@ -252,6 +265,10 @@ export default function App() {
         font: fontName,
         title: titlePrefix || '题目',
         format,
+        // 页眉 / 页脚（文字+可选图片）/ 水印装饰（水印不透明度 UI 为 5-100，后端用 0-1）
+        header: headerSpec,
+        footer: footerSpec,
+        watermark: { ...watermark, opacity: watermark.opacity / 100 },
       })
       const filesOut = data.files || { docx: true, pdf: false }
       setResultFiles(filesOut)
@@ -498,6 +515,24 @@ export default function App() {
               </div>
             </div>
           ))}
+          {/* 文档效果预览：页眉 / 页脚 / 水印设置，所见即最终导出效果 */}
+          <div style={{ borderTop: '1px dashed #d1d5db', margin: '4px 0 18px', paddingTop: 16 }}>
+            <div style={{ marginBottom: 12, fontWeight: 600, color: '#374151' }}>
+              文档效果预览（页眉 / 页脚 / 水印）
+            </div>
+            <DocPreview
+              taskId={taskId}
+              questions={previewQuestions}
+              font={fontName}
+              title={titlePrefix || '题目'}
+              headerSpec={headerSpec}
+              setHeaderSpec={setHeaderSpec}
+              footerSpec={footerSpec}
+              setFooterSpec={setFooterSpec}
+              watermark={watermark}
+              setWatermark={setWatermark}
+            />
+          </div>
           <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
             <GlassButton onClick={handleFinalize} loading={finalizing}>
               {finalizing

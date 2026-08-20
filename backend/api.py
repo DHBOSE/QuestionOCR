@@ -35,6 +35,7 @@ from converter import (
 )
 from docx_builder import markdown_to_docx, find_pandoc, AVAILABLE_FONTS, DEFAULT_FONT
 from pdf_builder import docx_to_pdf
+from doc_decor import apply_decorations, normalize_watermark, normalize_hf
 from splitter import split_image
 from doc_loader import pdf_to_images, docx_to_pdf_pages, docx_to_questions
 
@@ -628,6 +629,13 @@ async def finalize(task_id: str, request: Request):
         docx_path = task_dir / f"{stem}.docx"
         logger.info("[%s] 正在调用 Pandoc 生成 Word 文件……", task_id[:8])
         markdown_to_docx(str(md_path), str(docx_path), str(task_dir), font)
+        # 页眉 / 页脚 / 页面水印（可选；PDF 由装饰后的 docx 转换，装饰自动带入）
+        wm = normalize_watermark(payload.get("watermark"))
+        header = normalize_hf(payload.get("header"))
+        footer = normalize_hf(payload.get("footer"))
+        if wm or header or footer:
+            apply_decorations(str(docx_path), header, footer, wm, font)
+            logger.info("[%s] 已应用页眉/页脚/水印装饰", task_id[:8])
         task["docx_path"] = str(docx_path)
         logger.info("[%s] Word 生成完成：%s.docx", task_id[:8], stem)
 
@@ -661,6 +669,85 @@ async def finalize(task_id: str, request: Request):
     if pdf_error:
         resp["pdf_error"] = pdf_error
     return resp
+
+
+def _build_doc_preview(
+    task: dict, task_id: str, questions: list, font: str, title_prefix: str,
+    header: dict | None, footer: dict | None, wm: dict | None,
+) -> list:
+    """
+    生成文档效果预览（在线程池中执行）：
+    当前编辑内容 → preview.docx → 应用页眉/页脚/水印 → preview.pdf → 逐页 PNG。
+    返回相对任务目录的图片路径列表。
+    """
+    task_dir = task["dir"]
+    md_path = task_dir / "preview.md"
+    merge_questions(questions, str(md_path), title_prefix)
+    docx_path = task_dir / "preview.docx"
+    markdown_to_docx(str(md_path), str(docx_path), str(task_dir), font)
+    if wm or header or footer:
+        apply_decorations(str(docx_path), header, footer, wm, font)
+    pdf_path = task_dir / "preview.pdf"
+    docx_to_pdf(str(docx_path), str(pdf_path),
+                log=lambda m: logger.info("[%s] 预览：%s", task_id[:8], m))
+
+    import pymupdf
+
+    pages_dir = task_dir / "preview_pages"
+    shutil.rmtree(pages_dir, ignore_errors=True)  # 清掉上一次预览的页图
+    pages_dir.mkdir(exist_ok=True)
+    pages = []
+    matrix = pymupdf.Matrix(1.6, 1.6)  # ~115dpi，清晰度与体积平衡
+    doc = pymupdf.open(str(pdf_path))
+    try:
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            rel = f"preview_pages/page-{i + 1}.png"
+            pix.save(str(task_dir / rel))
+            pages.append(rel)
+    finally:
+        doc.close()
+    return pages
+
+
+@app.post("/preview-doc/{task_id}")
+async def preview_doc(task_id: str, request: Request):
+    """
+    文档效果预览：按当前编辑内容与页眉/页脚/水印设置生成 docx 并渲染为逐页图片。
+    请求体 JSON：
+        questions: 当前编辑后的每题 Markdown 数组
+        font / title: 与 /finalize 同义
+        header / footer: 页眉 / 页脚文字（可空）
+        watermark: { type: text|image, text, image(dataURL), size, opacity, angle }
+    返回：{ ok, pages: ["preview_pages/page-1.png", ...] }（经 /task-files 访问）
+    """
+    task = TASKS.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期，请重新上传")
+    if find_pandoc() is None:
+        raise HTTPException(status_code=500, detail="未找到 Pandoc，无法生成预览。")
+
+    payload = await request.json()
+    questions = [str(q) for q in (payload.get("questions") or []) if str(q).strip()]
+    if not questions:
+        raise HTTPException(status_code=400, detail="内容为空，无法生成预览。")
+    font = str(payload.get("font") or DEFAULT_FONT)
+    if font not in AVAILABLE_FONTS:
+        font = DEFAULT_FONT
+    title_prefix = str(payload.get("title") or "题目").strip()[:12] or "题目"
+    wm = normalize_watermark(payload.get("watermark"))
+    header = normalize_hf(payload.get("header"))
+    footer = normalize_hf(payload.get("footer"))
+
+    try:
+        pages = await run_in_threadpool(
+            _build_doc_preview, task, task_id, questions, font, title_prefix,
+            header, footer, wm,
+        )
+    except Exception as e:
+        logger.error("任务 %s 生成文档预览失败：%s", task_id, e)
+        raise HTTPException(status_code=500, detail=f"生成文档预览失败：{e}")
+    return {"ok": True, "pages": pages}
 
 
 @app.get("/task-files/{task_id}/{file_path:path}")
