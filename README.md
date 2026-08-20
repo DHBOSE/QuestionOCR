@@ -38,8 +38,14 @@
 ### 输出与管理
 
 - **识别预览与编辑**：左编辑右预览实时联动（KaTeX 渲染公式、插图实时显示），确认后再生成文件
+- **文档效果预览**：生成文件前可逐页预览最终排版效果（docx → PDF → 逐页图片），改内容随时刷新
+- **页眉 / 页脚 / 页面水印**：
+  - 页眉页脚支持文字 + 图片（如校徽 logo），图片大小可调，右对齐排版
+  - 水印支持文字 / 图片两种，大小、不透明度、角度均可调（文字水印按所选字体渲染）
 - **导出格式**：Word（.docx）/ PDF / 两者都要；PDF 由本机 Word → WPS → LibreOffice 逐级回退转换
 - **中文字体**：仿宋 / 黑体 / 楷体 / 宋体 / 微软雅黑 / 等线（默认仿宋）
+- **静默后台运行**：一键启动无黑色窗口，识别全过程不弹控制台（子进程全部 CREATE_NO_WINDOW）
+- **智能网络**：API 请求被系统代理劫持失败时自动回退直连重试，国内外服务商都能用
 - **历史任务**：识别结果保留 7 天，可随时重新下载或改格式再导出，无需重新识别
 - **API 用量统计**：token 用量本地累计，API 设置弹窗可查
 
@@ -117,7 +123,8 @@ python api.py        # 或 .venv/Scripts/python api.py（Windows）
    - **混合**（默认推荐）：API 识别文字公式 + 本地版面分析裁剪插图，兼顾质量与准确
 3. 点「开始处理」，实时查看进度与日志
 4. 在**预览编辑区**检查修改每题内容（公式用 `$...$` 行内公式语法）
-5. 点「生成 Word 文件 / PDF」，自动下载
+5. （可选）在**文档效果预览**区设置页眉 / 页脚 / 水印，点「生成文档预览」逐页查看最终排版
+6. 点「生成 Word 文件 / PDF」，自动下载
 
 ### API 设置
 
@@ -132,19 +139,21 @@ Screenshot2QuestionWord/
 ├── 启动.bat / 启动.vbs       # 一键无窗口启动（GBK 编码，勿用 UTF-8 编辑器保存）
 ├── 停止服务.bat / stop_server.ps1
 ├── backend/
-│   ├── api.py                # FastAPI：/upload /process(SSE) /finalize /download /history /usage
+│   ├── api.py                # FastAPI：/upload /process(SSE) /finalize /preview-doc /download /history /usage
 │   ├── recognizer.py         # 本地识别：Pix2Text + 公式四层管线 + 插图检测框去重/回收
-│   ├── api_recognizer.py     # API 识别：OpenAI 兼容协议，多服务商预设
+│   ├── api_recognizer.py     # API 识别：OpenAI 兼容协议，多服务商预设，代理失败自动回退直连
 │   ├── converter.py          # Markdown 生成：选项分行 / 填空还原 / 图注配对 / 跨题重分配
 │   ├── splitter.py           # 一页多题自动拆分（左侧边条 OCR 题号检测）
 │   ├── doc_loader.py         # Word / PDF 文件直识别（pandoc 直转 / 页渲染）
 │   ├── docx_builder.py       # Pandoc 调用 + 中文字体后处理（styles.xml / theme1.xml）
+│   ├── doc_decor.py          # 页眉/页脚（文字+图片）/ 页面水印（文字/图片，大小/透明度/角度）
 │   ├── pdf_builder.py        # docx → PDF（Word / WPS / LibreOffice 回退链）
+│   ├── procutil.py           # 静默子进程（CREATE_NO_WINDOW，不弹黑色控制台窗口）
 │   ├── models/unimernet_small/   # UniMERNet 权重（需自行下载，见上）
 │   ├── pandoc/               # Pandoc 便携版（可选，需自行放置）
 │   └── requirements.txt
 └── frontend/                 # React 18 + Vite + AntD 5
-    └── src/components/       # Uploader / FileList / QuestionPreview / HistoryPanel / WebThreads ...
+    └── src/components/       # Uploader / FileList / QuestionPreview / DocPreview / HistoryPanel / WebThreads ...
 ```
 
 ## 已知边界
