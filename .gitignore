@@ -18,6 +18,9 @@ backend/pandoc/
 backend/*.log
 backend/api_usage.json
 
+# 用户上传过的水印 / 页眉 / 页脚图片素材库（本机私有素材，不入库）
+backend/assets/images/
+
 # 系统
 .DS_Store
 Thumbs.db

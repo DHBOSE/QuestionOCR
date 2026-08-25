@@ -17,11 +17,16 @@ doc_decor.py —— docx 版面装饰：页眉 / 页脚 / 页面水印
 """
 
 import base64
+import hashlib
 import io
 import os
 import re
 import zipfile
 from pathlib import Path
+
+# 装饰图片素材库：用户上传过的水印 / 页眉 / 页脚图片统一转 PNG 存到这里，
+# 文件名取内容 md5（同图去重），前端可列出并直接复用（asset:文件名 引用）
+ASSET_DIR = Path(__file__).parent / "assets" / "images"
 
 # 装饰图片在 word/media 下的固定文件名
 _WM_IMAGE_NAME = "s2q_watermark.png"
@@ -51,10 +56,73 @@ def _decode_data_url(data_url: str) -> bytes | None:
         return None
 
 
+def _decode_asset_ref(ref: str) -> bytes | None:
+    """解析 asset:文件名 引用，从素材库读取图片字节；文件名非法或不存在返回 None。"""
+    m = re.match(r"^asset:([\w.\-]+)$", ref or "")
+    if not m:
+        return None
+    name = m.group(1)
+    if Path(name).name != name:  # 防路径越界
+        return None
+    path = ASSET_DIR / name
+    if not path.is_file():
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _resolve_image_bytes(value: str) -> bytes | None:
+    """图片来源统一入口：先按 dataURL 解析（新上传），再按 asset: 引用解析（素材库复用）。"""
+    return _decode_data_url(value) or _decode_asset_ref(value)
+
+
+def save_asset_image(image_bytes: bytes) -> str | None:
+    """
+    把一张上传的装饰图片纳入素材库：统一转 PNG，按内容 md5 命名（同图去重，已存在则跳过）。
+    返回素材文件名（前端以 asset:文件名 复用），图片无法解码时返回 None。
+    """
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    except Exception:
+        return None
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    png = buf.getvalue()
+    name = f"img_{hashlib.md5(png).hexdigest()[:10]}.png"
+    path = ASSET_DIR / name
+    if path.exists():
+        # 同图复用：刷新修改时间，让素材列表里常用的图排在前面
+        try:
+            os.utime(path)
+        except OSError:
+            pass
+        return name
+    try:
+        ASSET_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(png)
+    except OSError:
+        return None
+    return name
+
+
+def list_asset_images() -> list[str]:
+    """列出素材库中的全部图片文件名（按修改时间新的在前）。"""
+    if not ASSET_DIR.is_dir():
+        return []
+    files = [p for p in ASSET_DIR.iterdir()
+             if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg")]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [p.name for p in files]
+
+
 def normalize_watermark(raw: dict | None) -> dict | None:
     """
     校验并规整前端传来的水印参数，返回 None 表示不加水印。
-    输入字段：type(none/text/image) / text / image(dataURL) / size / opacity / angle
+    输入字段：type(none/text/image) / text / image(dataURL 或 asset:文件名) / size / opacity / angle
     """
     if not isinstance(raw, dict):
         return None
@@ -75,7 +143,7 @@ def normalize_watermark(raw: dict | None) -> dict | None:
             return None
         wm["text"] = text
     else:
-        image_bytes = _decode_data_url(str(raw.get("image") or ""))
+        image_bytes = _resolve_image_bytes(str(raw.get("image") or ""))
         if image_bytes is None:
             return None
         wm["image_bytes"] = image_bytes
@@ -85,7 +153,7 @@ def normalize_watermark(raw: dict | None) -> dict | None:
 def normalize_hf(raw) -> dict | None:
     """
     校验并规整页眉 / 页脚参数，返回 None 表示不加。
-    兼容两种输入：纯字符串（仅文字）或 { text, image(dataURL), size } 对象。
+    兼容两种输入：纯字符串（仅文字）或 { text, image(dataURL 或 asset:文件名), size } 对象。
     返回：{ text, image_bytes|None, size(10-100) }
     """
     if raw is None:
@@ -96,7 +164,7 @@ def normalize_hf(raw) -> dict | None:
     if isinstance(raw, dict):
         text = str(raw.get("text") or "").strip()[:_HF_TEXT_MAXLEN]
         size = int(_clamp(float(raw.get("size") or 50), _SIZE_MIN, _SIZE_MAX))
-        image_bytes = _decode_data_url(str(raw.get("image") or ""))
+        image_bytes = _resolve_image_bytes(str(raw.get("image") or ""))
         if not text and image_bytes is None:
             return None
         return {"text": text, "image_bytes": image_bytes, "size": size}

@@ -676,82 +676,289 @@ body {
   }
 }
 
-/* ========== 整页拆题 flipswitch 开关 ========== */
-.flipswitch {
-  position: relative;
-  width: 80px;
-}
-
-.flipswitch input[type='checkbox'] {
+/* ========== 整页拆题：圆形描边动画勾选框 ========== */
+/* 未勾选显示 ✕（弹入动画），勾选时 ✕ 收回、圆形对勾描边画出 */
+.checkbox-wrapper input[type='checkbox'] {
   display: none;
+  visibility: hidden;
 }
 
-.flipswitch-label {
-  display: block;
-  overflow: hidden;
-  cursor: pointer;
-  border: 1px solid #260999;
-  border-radius: 41px;
-  margin-bottom: 0;
-}
-
-.flipswitch-inner {
-  width: 200%;
-  margin-left: -100%;
-  transition: margin 0.3s ease-in 0s;
-}
-
-.flipswitch-inner:before,
-.flipswitch-inner:after {
-  float: left;
-  width: 50%;
-  height: 38px;
-  padding: 0;
-  line-height: 38px;
-  font-size: 25px;
-  color: white;
-  font-family: Trebuchet, Arial, sans-serif;
-  font-weight: bold;
+.checkbox-wrapper *,
+.checkbox-wrapper *::before,
+.checkbox-wrapper *::after {
   box-sizing: border-box;
 }
 
-.flipswitch-inner:before {
-  content: '✔';
-  padding-left: 20px;
-  background-color: #15009c;
-  color: #ffffff;
+.checkbox-wrapper .toggleButton {
+  cursor: pointer;
+  display: block;
+  transform-origin: 50% 50%;
+  transform-style: preserve-3d;
+  transition: transform 0.14s ease;
 }
 
-.flipswitch-inner:after {
-  content: 'X';
-  padding-right: 20px;
-  background-color: #ebebeb;
-  color: #15009c;
-  text-align: right;
+.checkbox-wrapper .toggleButton:active {
+  transform: rotateX(30deg);
 }
 
-.flipswitch-switch {
-  width: 25px;
-  margin: 6.5px;
-  background: #ffffff;
-  border: 1px solid #260999;
-  border-radius: 41px;
+.checkbox-wrapper .toggleButton input + div {
+  border: 2px solid rgba(21, 0, 156, 0.3);
+  border-radius: 50%;
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+
+.checkbox-wrapper .toggleButton input + div svg {
+  fill: none;
+  stroke-width: 3.6;
+  stroke: #15009c;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  width: 22px;
+  height: 22px;
+  display: block;
   position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 41px;
-  transition: all 0.3s ease-in 0s;
+  left: -2px;
+  top: -2px;
+  z-index: 1;
+  stroke-dashoffset: 124.6;
+  stroke-dasharray: 0 162.6 133 29.6;
+  transition: all 0.4s ease 0s;
 }
 
-.flipswitch-cb:checked + .flipswitch-label .flipswitch-inner {
-  margin-left: 0;
+.checkbox-wrapper .toggleButton input + div::before,
+.checkbox-wrapper .toggleButton input + div::after {
+  content: '';
+  width: 2px;
+  height: 8px;
+  background: #15009c;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 5px;
 }
 
-.flipswitch-cb:checked + .flipswitch-label .flipswitch-switch {
-  right: 0;
+.checkbox-wrapper .toggleButton input + div::before {
+  opacity: 0;
+  transform: scale(0.3) translate(-50%, -50%) rotate(45deg);
+  animation: bounceInBefore-44 0.3s linear forwards 0.3s;
 }
 
-.flipswitch-disabled .flipswitch-label {
+.checkbox-wrapper .toggleButton input + div::after {
+  opacity: 0;
+  transform: scale(0.3) translate(-50%, -50%) rotate(-45deg);
+  animation: bounceInAfter-44 0.3s linear forwards 0.3s;
+}
+
+.checkbox-wrapper .toggleButton input:checked + div svg {
+  stroke-dashoffset: 162.6;
+  stroke-dasharray: 0 162.6 28 134.6;
+  transition: all 0.4s ease 0.2s;
+}
+
+.checkbox-wrapper .toggleButton input:checked + div::before {
+  opacity: 0;
+  transform: scale(0.3) translate(-50%, -50%) rotate(45deg);
+  animation: bounceInBeforeDont-44 0.3s linear forwards 0s;
+}
+
+.checkbox-wrapper .toggleButton input:checked + div::after {
+  opacity: 0;
+  transform: scale(0.3) translate(-50%, -50%) rotate(-45deg);
+  animation: bounceInAfterDont-44 0.3s linear forwards 0s;
+}
+
+@keyframes bounceInBefore-44 {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translate(-50%, -50%) rotate(45deg);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.1) translate(-50%, -50%) rotate(45deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(0.89) translate(-50%, -50%) rotate(45deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(-50%, -50%) rotate(45deg);
+  }
+}
+
+@keyframes bounceInAfter-44 {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translate(-50%, -50%) rotate(-45deg);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.1) translate(-50%, -50%) rotate(-45deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(0.89) translate(-50%, -50%) rotate(-45deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate(-50%, -50%) rotate(-45deg);
+  }
+}
+
+@keyframes bounceInBeforeDont-44 {
+  0% {
+    opacity: 1;
+    transform: scale(1) translate(-50%, -50%) rotate(45deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3) translate(-50%, -50%) rotate(45deg);
+  }
+}
+
+@keyframes bounceInAfterDont-44 {
+  0% {
+    opacity: 1;
+    transform: scale(1) translate(-50%, -50%) rotate(-45deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3) translate(-50%, -50%) rotate(-45deg);
+  }
+}
+
+/* 禁用态：处理中不可点击 */
+.checkbox-disabled .toggleButton {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.checkbox-disabled .toggleButton:active {
+  transform: none;
+}
+
+/* ========== 左侧固定导航栏 ========== */
+/* 布局：给固定侧边栏让位（侧边栏 position: fixed，滚动时不动） */
+.app-layout {
+  padding-left: 240px;
+  min-height: 100vh;
+}
+
+/* 圆角矩形卡片形态：与主卡片同款毛玻璃风格，上下左右留白悬浮 */
+.app-sidebar {
+  position: fixed;
+  top: 24px;
+  left: 16px;
+  bottom: 24px;
+  width: 200px;
+  z-index: 10; /* 高于 WebGL 背景(0)与内容(1)，不被卡片悬停盖住 */
+  display: flex;
+  flex-direction: column;
+  padding: 24px 14px 18px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 12px 17px 51px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 17px;
+  /* 悬停只过渡阴影与描边，无位移 / 缩放 / 回弹等跳动动效 */
+  transition: box-shadow 0.4s, border-color 0.4s;
+}
+
+/* 悬停效果：描边加深 + 阴影加重，位置纹丝不动 */
+.app-sidebar:hover {
+  border-color: rgba(31, 35, 41, 0.45);
+  box-shadow: 14px 20px 56px rgba(0, 0, 0, 0.18);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 0 10px 16px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+/* 品牌图标：默认深灰，悬停变为品牌蓝（0.3s 平滑过渡） */
+.sidebar-brand-icon {
+  color: #2c2c2c;
+  flex-shrink: 0;
+  transition: color 0.3s;
+}
+
+.sidebar-brand:hover .sidebar-brand-icon {
+  color: #15009c;
+}
+
+/* 品牌渐变文字：继承品牌字号字重，去掉组件自带的指针光标与居中外边距 */
+.sidebar-brand-text {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: default;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+
+.sidebar-item:hover {
+  background: rgba(79, 110, 247, 0.1);
+}
+
+/* 当前功能高亮：沿用开关的深蓝色 */
+.sidebar-item-active,
+.sidebar-item-active:hover {
+  background: #15009c;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(21, 0, 156, 0.28);
+}
+
+.sidebar-item-icon {
+  font-size: 16px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 10px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+/* 窄屏（< 900px）：隐藏侧边栏，内容回归全宽居中 */
+@media (max-width: 900px) {
+  .app-layout {
+    padding-left: 0;
+  }
+
+  .app-sidebar {
+    display: none;
+  }
 }

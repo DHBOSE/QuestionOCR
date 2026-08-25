@@ -12,6 +12,7 @@ import DocPreview from './components/DocPreview'
 import ApiSettings, { loadApiConfig } from './components/ApiSettings'
 import HistoryPanel from './components/HistoryPanel'
 import GlassButton from './components/GlassButton'
+import Sidebar from './components/Sidebar'
 import WebThreads from './components/WebThreads/WebThreads'
 
 // Word 中文字体选项（与后端 docx_builder.AVAILABLE_FONTS 保持一致）
@@ -50,8 +51,8 @@ export default function App() {
   const [fontName, setFontName] = useState('仿宋')
   // 导出格式：docx / pdf / both
   const [format, setFormat] = useState('docx')
-  // 一页多题自动拆分（默认开）
-  const [autoSplit, setAutoSplit] = useState(true)
+  // 一页多题自动拆分（默认关，需要时手动开启）
+  const [autoSplit, setAutoSplit] = useState(false)
   // 生成结果包含哪些文件（finalize 成功后由后端返回）
   const [resultFiles, setResultFiles] = useState(null)
   // 每道题标题前缀（默认"题目"，生成"题目 N"）
@@ -300,7 +301,10 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
+    <div className="app-layout">
+      {/* 左侧固定导航栏（页面滚动时保持原位） */}
+      <Sidebar active="screenshot2word" />
+      <div className="app-container">
       {/* 全屏 WebGL 丝线背景（react-bits WebThreads，参数按需求固定） */}
       <WebThreads
         className="app-background"
@@ -389,18 +393,22 @@ export default function App() {
           </div>
           <div className="setting-row">
             <span className="setting-label">整页拆题：</span>
-            <div className={`flipswitch${processing ? ' flipswitch-disabled' : ''}`}>
-              <input
-                id="flipswitch-split"
-                className="flipswitch-cb"
-                type="checkbox"
-                checked={autoSplit}
-                onChange={(e) => setAutoSplit(e.target.checked)}
-                disabled={processing}
-              />
-              <label htmlFor="flipswitch-split" className="flipswitch-label">
-                <div className="flipswitch-inner" />
-                <div className="flipswitch-switch" />
+            <div className={`checkbox-wrapper${processing ? ' checkbox-disabled' : ''}`}>
+              <label className="toggleButton">
+                <input
+                  type="checkbox"
+                  checked={autoSplit}
+                  onChange={(e) => setAutoSplit(e.target.checked)}
+                  disabled={processing}
+                />
+                <div>
+                  <svg viewBox="0 0 44 44">
+                    <path
+                      transform="translate(-2.000000, -2.000000)"
+                      d="M14,24 L21,31 L39.7428882,11.5937758 C35.2809627,6.53125861 30.0333333,4 24,4 C12.95,4 4,12.95 4,24 C4,35.05 12.95,44 24,44 C35.05,44 44,35.05 44,24 C44,19.3 42.5809627,15.1645919 39.7428882,11.5937758"
+                    />
+                  </svg>
+                </div>
               </label>
             </div>
             <span style={{ color: '#9ca3af', fontSize: 12 }}>
@@ -574,6 +582,7 @@ export default function App() {
         onClose={() => setHistoryOpen(false)}
         exportSettings={{ filename: outputName, font: fontName, title: titlePrefix, format }}
       />
+      </div>
     </div>
   )
 }

@@ -35,7 +35,10 @@ from converter import (
 )
 from docx_builder import markdown_to_docx, find_pandoc, AVAILABLE_FONTS, DEFAULT_FONT
 from pdf_builder import docx_to_pdf
-from doc_decor import apply_decorations, normalize_watermark, normalize_hf
+from doc_decor import (
+    apply_decorations, normalize_watermark, normalize_hf,
+    save_asset_image, list_asset_images, ASSET_DIR,
+)
 from splitter import split_image
 from doc_loader import pdf_to_images, docx_to_pdf_pages, docx_to_questions
 
@@ -635,6 +638,7 @@ async def finalize(task_id: str, request: Request):
         footer = normalize_hf(payload.get("footer"))
         if wm or header or footer:
             apply_decorations(str(docx_path), header, footer, wm, font)
+            _archive_decor_images(header, footer, wm)
             logger.info("[%s] 已应用页眉/页脚/水印装饰", task_id[:8])
         task["docx_path"] = str(docx_path)
         logger.info("[%s] Word 生成完成：%s.docx", task_id[:8], stem)
@@ -669,6 +673,15 @@ async def finalize(task_id: str, request: Request):
     if pdf_error:
         resp["pdf_error"] = pdf_error
     return resp
+
+
+def _archive_decor_images(header: dict | None, footer: dict | None, wm: dict | None) -> None:
+    """把本次用到的页眉/页脚/水印图片纳入素材库（按内容去重，已存在则只刷新时间）。"""
+    for spec in (header, footer, wm):
+        if spec and spec.get("image_bytes"):
+            name = save_asset_image(spec["image_bytes"])
+            if name:
+                logger.info("装饰图片已纳入素材库：%s", name)
 
 
 def _build_doc_preview(
@@ -747,7 +760,34 @@ async def preview_doc(task_id: str, request: Request):
     except Exception as e:
         logger.error("任务 %s 生成文档预览失败：%s", task_id, e)
         raise HTTPException(status_code=500, detail=f"生成文档预览失败：{e}")
+    if wm or header or footer:
+        _archive_decor_images(header, footer, wm)
     return {"ok": True, "pages": pages}
+
+
+# ---------------------------------------------------------------------------
+# 装饰图片素材库（水印 / 页眉 / 页脚图片的持久化复用）
+# ---------------------------------------------------------------------------
+@app.get("/asset-images")
+async def asset_images_list():
+    """列出素材库中全部图片，前端水印 / 页眉 / 页脚设置面板直接选用。"""
+    return {
+        "images": [
+            {"name": name, "url": f"/asset-images/{name}"}
+            for name in list_asset_images()
+        ]
+    }
+
+
+@app.get("/asset-images/{name}")
+async def asset_images_get(name: str):
+    """返回素材库中的单张图片（文件名白名单校验，防路径越界）。"""
+    if Path(name).name != name or not re.fullmatch(r"[\w.\-]+", name):
+        raise HTTPException(status_code=403, detail="非法的文件名")
+    path = ASSET_DIR / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="素材不存在")
+    return FileResponse(str(path))
 
 
 @app.get("/task-files/{task_id}/{file_path:path}")

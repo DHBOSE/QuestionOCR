@@ -3,7 +3,7 @@
 // 水印：文字 / 图片两种，均可调 大小、不透明度、角度。
 // 点击「生成文档预览」后，后端把当前编辑内容生成 docx（含装饰），
 // 经本机 Word/WPS 转成 PDF 再渲染为逐页图片返回，所见即最终导出效果。
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Input, Select, Slider, Upload, message } from 'antd'
 import axios from 'axios'
 import GlassButton from './GlassButton'
@@ -14,6 +14,11 @@ const WM_TYPE_OPTIONS = [
   { value: 'text', label: '文字水印' },
   { value: 'image', label: '图片水印' },
 ]
+
+// 图片字段两种形态：新上传是 dataURL，素材库复用是 asset:文件名
+// <img> 的 src 需要把 asset: 引用还原成后端素材地址
+const imgSrc = (image) =>
+  image?.startsWith('asset:') ? `/asset-images/${image.slice(6)}` : image
 
 // 读取本地图片为 dataURL（不发网络请求，生成预览 / 导出时随 JSON 发给后端）
 const readImage = (file, onDone) => {
@@ -27,8 +32,48 @@ const readImage = (file, onDone) => {
   return false
 }
 
-// 页眉 / 页脚编辑行：文字输入 + 图片选择 + 图片大小
-function HFEditor({ label, spec, setSpec }) {
+// 素材库缩略图选择条：上传过的图片自动入库，点选即复用（存 asset:文件名 引用）
+function AssetPicker({ assets, value, onPick }) {
+  if (!assets.length) return null
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        alignItems: 'center',
+        maxWidth: 420,
+        overflowX: 'auto',
+        padding: '4px 2px',
+      }}
+    >
+      <span style={{ color: '#9ca3af', fontSize: 12, whiteSpace: 'nowrap' }}>素材库：</span>
+      {assets.map((a) => {
+        const ref = `asset:${a.name}`
+        const selected = value === ref
+        return (
+          <img
+            key={a.name}
+            src={a.url}
+            alt={a.name}
+            title={a.name}
+            onClick={() => onPick(ref)}
+            style={{
+              height: 40,
+              flexShrink: 0,
+              borderRadius: 6,
+              cursor: 'pointer',
+              border: selected ? '2px solid #15009C' : '1px solid #e5e7eb',
+              boxSizing: 'border-box',
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+// 页眉 / 页脚编辑行：文字输入 + 图片选择（本地上传或素材库）+ 图片大小
+function HFEditor({ label, spec, setSpec, assets }) {
   return (
     <>
       <div className="setting-row">
@@ -54,7 +99,7 @@ function HFEditor({ label, spec, setSpec }) {
         {spec.image && (
           <>
             <img
-              src={spec.image}
+              src={imgSrc(spec.image)}
               alt={`${label}图片`}
               style={{
                 height: 36,
@@ -72,6 +117,15 @@ function HFEditor({ label, spec, setSpec }) {
             </a>
           </>
         )}
+      </div>
+      {/* 素材库：上传过的图片直接点选复用 */}
+      <div className="setting-row">
+        <span className="setting-label" />
+        <AssetPicker
+          assets={assets}
+          value={spec.image}
+          onPick={(ref) => setSpec((prev) => ({ ...prev, image: ref }))}
+        />
       </div>
       {/* 选了图片才显示大小调节 */}
       {spec.image && (
@@ -107,6 +161,21 @@ export default function DocPreview({
   const [pages, setPages] = useState([])
   const [stamp, setStamp] = useState(0)
   const [loading, setLoading] = useState(false)
+  // 素材库：上传过的水印 / 页眉 / 页脚图片（后端自动入库，这里列出供复用）
+  const [assets, setAssets] = useState([])
+
+  // 拉取素材库列表（组件挂载时 + 每次生成预览后，新上传的图片此时已入库）
+  const fetchAssets = async () => {
+    try {
+      const { data } = await axios.get('/asset-images')
+      setAssets(data.images || [])
+    } catch {
+      /* 素材库拉取失败不影响主流程 */
+    }
+  }
+  useEffect(() => {
+    fetchAssets()
+  }, [])
 
   // 局部更新水印设置
   const setWm = (patch) => setWatermark((prev) => ({ ...prev, ...patch }))
@@ -126,6 +195,7 @@ export default function DocPreview({
       })
       setPages(data.pages || [])
       setStamp(Date.now())
+      fetchAssets()  // 本次用到的图片已自动入库，刷新素材列表
       message.success(`预览已生成，共 ${(data.pages || []).length} 页`)
     } catch (err) {
       const detail = err.response?.data?.detail || err.message
@@ -138,8 +208,8 @@ export default function DocPreview({
   return (
     <div>
       {/* 页眉 / 页脚（文字 + 可选图片） */}
-      <HFEditor label="页眉" spec={headerSpec} setSpec={setHeaderSpec} />
-      <HFEditor label="页脚" spec={footerSpec} setSpec={setFooterSpec} />
+      <HFEditor label="页眉" spec={headerSpec} setSpec={setHeaderSpec} assets={assets} />
+      <HFEditor label="页脚" spec={footerSpec} setSpec={setFooterSpec} assets={assets} />
 
       {/* 水印设置 */}
       <div className="setting-row">
@@ -172,11 +242,16 @@ export default function DocPreview({
             </Upload>
             {watermark.image && (
               <img
-                src={watermark.image}
+                src={imgSrc(watermark.image)}
                 alt="水印图片"
                 style={{ height: 40, borderRadius: 6, border: '1px solid #e5e7eb' }}
               />
             )}
+            <AssetPicker
+              assets={assets}
+              value={watermark.image}
+              onPick={(ref) => setWm({ image: ref, type: 'image' })}
+            />
           </span>
         )}
       </div>
