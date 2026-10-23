@@ -38,7 +38,8 @@ PROVIDERS = {
     "qwen": {
         "name": "通义千问 Qwen-VL（阿里 DashScope，推荐）",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen-vl-max",
+        # qwen-vl-max / qwen-vl-plus 已于 2026-10-10 被阿里下线，改用 Qwen3-VL 系列
+        "model": "qwen3-vl-plus",
         "key_env": "DASHSCOPE_API_KEY",
     },
     "zhipu": {
@@ -58,6 +59,14 @@ PROVIDERS = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "model": "gemini-2.5-flash",
         "key_env": "GEMINI_API_KEY",
+    },
+    # PaddleOCR-VL 是任务式接口（提交→轮询→下载结果），不是 chat completions；
+    # base_url 指向任务提交端点，实际请求走 paddle_recognizer.py
+    "paddleocr": {
+        "name": "百度 PaddleOCR-VL（AI Studio）",
+        "base_url": "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+        "model": "PaddleOCR-VL-1.6",
+        "key_env": "PADDLEOCR_ACCESS_TOKEN",
     },
     "custom": {
         "name": "自定义（任意 OpenAI 兼容端点）",
@@ -130,25 +139,13 @@ def _image_to_data_url(image_path: str) -> str:
     return f"data:{mime};base64,{data}"
 
 
-def _call_chat_completions(cfg: dict, image_path: str):
+def post_chat_completions(cfg: dict, payload: dict):
     """
-    调用 OpenAI 兼容的 /chat/completions 接口。
+    通用 HTTP 层：POST OpenAI 兼容的 /chat/completions 接口。
     返回 (模型输出文本, token 用量 dict)；用量取自响应的 usage 字段，
     服务商未返回时为 None。网络 / 鉴权 / 参数错误统一转为带中文说明的 RuntimeError。
+    供识别（api_recognizer）与答案生成（answer_gen）共用。
     """
-    payload = {
-        "model": cfg["model"],
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": _image_to_data_url(image_path)}},
-                    {"type": "text", "text": PROMPT},
-                ],
-            }
-        ],
-        "temperature": 0.1,  # 识别任务尽量确定性输出
-    }
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {cfg['api_key']}",
@@ -196,6 +193,24 @@ def _call_chat_completions(cfg: dict, image_path: str):
     # token 用量（OpenAI 兼容协议的可选字段，qwen / 智谱 / 豆包 / gemini 均会返回）
     usage = body.get("usage") if isinstance(body, dict) else None
     return content, usage
+
+
+def _call_chat_completions(cfg: dict, image_path: str):
+    """识别用：构造带图请求并调用通用 HTTP 层，返回 (文本, 用量)。"""
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": _image_to_data_url(image_path)}},
+                    {"type": "text", "text": PROMPT},
+                ],
+            }
+        ],
+        "temperature": 0.1,  # 识别任务尽量确定性输出
+    }
+    return post_chat_completions(cfg, payload)
 
 
 def _parse_json_response(content: str) -> dict:

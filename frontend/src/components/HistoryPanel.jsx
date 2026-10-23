@@ -6,10 +6,10 @@ import axios from 'axios'
 
 const { Text } = Typography
 
-// 触发浏览器下载（kind: docx / pdf）
-const triggerDownload = (taskId, kind) => {
+// 触发浏览器下载（kind: docx / pdf；ver: teacher 默认 / student 学生版）
+const triggerDownload = (taskId, kind, ver = 'teacher') => {
   const a = document.createElement('a')
-  a.href = `/download/${taskId}?kind=${kind}`
+  a.href = `/download/${taskId}?kind=${kind}&ver=${ver}`
   a.download = ''
   document.body.appendChild(a)
   a.click()
@@ -42,24 +42,31 @@ export default function HistoryPanel({ open, onClose, exportSettings }) {
     setReexporting(item.task_id)
     try {
       const { data: detail } = await axios.get(`/history/${item.task_id}`)
-      const { filename, font, title, format } = exportSettings
+      const { filename, font, title, format, dual, teacherTag } = exportSettings
       const { data } = await axios.post(`/finalize/${item.task_id}`, {
         questions: detail.question_mds,
         filename: filename || item.output_stem || 'output',
         font,
         title,
         format,
+        dual: dual ? '1' : '0',
+        teacher_tag: teacherTag ? '1' : '0',
       })
       const filesOut = data.files || { docx: true, pdf: false }
       message.success('重新导出完成，已开始下载')
-      if (format === 'pdf') {
-        triggerDownload(item.task_id, 'pdf')
-      } else if (format === 'both' && filesOut.pdf) {
-        triggerDownload(item.task_id, 'docx')
-        setTimeout(() => triggerDownload(item.task_id, 'pdf'), 600)
-      } else {
-        triggerDownload(item.task_id, 'docx')
+      // 双版本/双格式时逐个触发下载，错开时间避免浏览器拦截
+      const jobs = []
+      if (format !== 'pdf') {
+        jobs.push(['docx', 'teacher'])
+        if (filesOut.dual) jobs.push(['docx', 'student'])
       }
+      if (format !== 'docx' && filesOut.pdf) {
+        jobs.push(['pdf', 'teacher'])
+        if (filesOut.dual && filesOut.pdf_student) jobs.push(['pdf', 'student'])
+      }
+      jobs.forEach(([kind, ver], i) =>
+        setTimeout(() => triggerDownload(item.task_id, kind, ver), i * 600),
+      )
       if (data.pdf_error) message.warning(`PDF 生成失败，已仅导出 Word：${data.pdf_error}`)
       load() // 刷新文件状态
     } catch (err) {
@@ -98,13 +105,23 @@ export default function HistoryPanel({ open, onClose, exportSettings }) {
             <List.Item
               actions={[
                 item.has_docx && (
-                  <Button key="docx" size="small" onClick={() => triggerDownload(item.task_id, 'docx')}>
-                    Word
+                  <Button key="docx" size="small" onClick={() => triggerDownload(item.task_id, 'docx', 'teacher')}>
+                    {item.has_docx_student ? '教师版 Word' : 'Word'}
+                  </Button>
+                ),
+                item.has_docx_student && (
+                  <Button key="docx-s" size="small" onClick={() => triggerDownload(item.task_id, 'docx', 'student')}>
+                    学生版 Word
                   </Button>
                 ),
                 item.has_pdf && (
-                  <Button key="pdf" size="small" onClick={() => triggerDownload(item.task_id, 'pdf')}>
-                    PDF
+                  <Button key="pdf" size="small" onClick={() => triggerDownload(item.task_id, 'pdf', 'teacher')}>
+                    {item.has_pdf_student ? '教师版 PDF' : 'PDF'}
+                  </Button>
+                ),
+                item.has_pdf_student && (
+                  <Button key="pdf-s" size="small" onClick={() => triggerDownload(item.task_id, 'pdf', 'student')}>
+                    学生版 PDF
                   </Button>
                 ),
                 <Button

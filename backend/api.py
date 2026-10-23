@@ -29,9 +29,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from recognizer import recognize_question, detect_figure_crops
 from api_recognizer import api_recognize_question, resolve_api_config, PROVIDERS
+from answer_gen import resolve_ds_config, generate_answers
+from image_enhance import enhance_image, VALID_OPTS as VALID_ENHANCE_OPTS
 from converter import (
     elements_to_markdown, merge_questions, tag_figure_captions, reassign_question_figures,
     normalize_option_lines, restore_fill_blanks, merge_figure_only_items,
+    append_answer, strip_answers, has_answers,
 )
 from docx_builder import markdown_to_docx, find_pandoc, AVAILABLE_FONTS, DEFAULT_FONT
 from pdf_builder import docx_to_pdf
@@ -92,11 +95,14 @@ def save_task_meta(task_id: str) -> None:
         "engines": task.get("engines", []),
         "split": task.get("split", True),
         "question_mds": task.get("question_mds"),
+        "question_imgs": task.get("question_imgs"),
         "failed": task.get("failed", []),
         "usage": task.get("usage", []),
         "output_stem": task.get("output_stem"),
         "has_docx": bool(task.get("docx_path") and Path(task["docx_path"]).exists()),
         "has_pdf": bool(task.get("pdf_path") and Path(task["pdf_path"]).exists()),
+        # 双版本导出时学生版文件名固定为 {stem}_学生版.docx/.pdf，恢复时按命名规则推导即可
+        "has_student": bool(task.get("docx_student_path") and Path(task["docx_student_path"]).exists()),
     }
     try:
         (task["dir"] / "task.json").write_text(
@@ -128,6 +134,9 @@ def load_persisted_tasks() -> None:
         stem = meta.get("output_stem")
         docx_path = task_dir / f"{stem}.docx" if stem else None
         pdf_path = task_dir / f"{stem}.pdf" if stem else None
+        # 双版本导出的学生版（文件名规则：{stem}_学生版.docx/.pdf）
+        docx_student = task_dir / f"{stem}_学生版.docx" if stem and meta.get("has_student") else None
+        pdf_student = task_dir / f"{stem}_学生版.pdf" if stem and meta.get("has_student") else None
         TASKS[task_id] = {
             "dir": task_dir,
             "files": [str(p) for p in uploads],
@@ -136,6 +145,7 @@ def load_persisted_tasks() -> None:
             "split": meta.get("split", True),
             "orig_names": meta.get("orig_names", []),
             "question_mds": meta.get("question_mds"),
+            "question_imgs": meta.get("question_imgs"),
             "failed": meta.get("failed", []),
             "usage": meta.get("usage", []),
             "output_stem": stem,
@@ -143,6 +153,8 @@ def load_persisted_tasks() -> None:
             "created_at": created,
             "docx_path": str(docx_path) if docx_path and docx_path.exists() else None,
             "pdf_path": str(pdf_path) if pdf_path and pdf_path.exists() else None,
+            "docx_student_path": str(docx_student) if docx_student and docx_student.exists() else None,
+            "pdf_student_path": str(pdf_student) if pdf_student and pdf_student.exists() else None,
             "error": None,
         }
     if TASKS:
@@ -193,10 +205,10 @@ def cleanup_expired_tasks() -> None:
             logger.info("已清理过期任务：%s", task_id)
 
 
-def _expand_upload_plan(saved, orig_names, engines, pages, docmodes, task_dir) -> list:
+def _expand_upload_plan(saved, orig_names, engines, pages, docmodes, task_dir, enhances=None) -> list:
     """
     把上传文件展开成有序工作清单（上传时一次性完成）：
-    - 图片     → 一条 image 项；
+    - 图片     → 一条 image 项（可带 enhance 图片优化选项：dewm/erase_hw/white/sharpen）；
     - PDF      → 指定页渲染成高清图，每页一条 image 项（继承该文件的引擎选择）；
     - Word 直转 → pandoc 转 Markdown 按题号切题，每题一条 preset 项（不占用识别额度）；
     - Word OCR → docx → PDF → 页图，每页一条 image 项（用于 Word 里嵌的是题目截图的场景）。
@@ -207,8 +219,10 @@ def _expand_upload_plan(saved, orig_names, engines, pages, docmodes, task_dir) -
         suffix = Path(path).suffix.lower()
         engine = engines[idx] if idx < len(engines) else "local"
         name = orig_names[idx] if idx < len(orig_names) else Path(path).name
+        enhance = enhances[idx] if enhances and idx < len(enhances) else []
         if suffix in IMAGE_SUFFIX:
-            plan.append({"kind": "image", "path": path, "engine": engine, "name": name})
+            plan.append({"kind": "image", "path": path, "engine": engine,
+                         "name": name, "enhance": enhance})
         elif suffix == ".pdf":
             page_spec = pages[idx] if idx < len(pages) else ""
             logger.info("PDF 文件 %s：渲染页图（范围：%s）", name, page_spec or "全部")
@@ -274,6 +288,19 @@ def process_task(task_id: str, output_name: str, font_name: str, log_queue: queu
             img_path = item["path"]
             engine = item.get("engine", "local")
             name = item.get("name") or Path(img_path).name
+            # 图片优化（可选，按图勾选）：识别前先去水印/转白底/清晰化，
+            # 处理后的图替换原路径进入拆分与识别（原图保留在 uploads/ 不动）
+            enhance_opts = item.get("enhance") or []
+            if enhance_opts:
+                opt_names = "、".join(
+                    {"dewm": "去水印", "erase_hw": "去手写",
+                     "white": "转白底", "sharpen": "清晰化"}[o]
+                    for o in enhance_opts)
+                log(f"正在优化图片 {name}（{opt_names}）……")
+                img_path = enhance_image(
+                    img_path, str(task_dir / "enhanced"),
+                    enhance_opts, task.get("enhance_config", {}), log,
+                )
             if split_enabled:
                 split_seq += 1
                 log(f"正在检测 {name} 是否包含多道题……")
@@ -301,6 +328,12 @@ def process_task(task_id: str, output_name: str, font_name: str, log_queue: queu
             if engine in ("api", "hybrid"):
                 # 远程 API 识别：密钥不落盘，仅在本任务内存中使用
                 cfg = resolve_api_config(**api_config)
+                if cfg["provider"] == "paddleocr":
+                    # PaddleOCR-VL 任务式接口：直接产出整题 Markdown（含插图），
+                    # 与 preset（Word 直转）一样进入预览管线
+                    from paddle_recognizer import paddle_recognize
+                    result = paddle_recognize(img_path, str(figure_dir), cfg, log=log)
+                    return widx, label, "paddle", result["markdown"]
                 result = api_recognize_question(
                     img_path, str(figure_dir), cfg, log=log,
                     skip_figures=(engine == "hybrid"),
@@ -344,12 +377,16 @@ def process_task(task_id: str, output_name: str, font_name: str, log_queue: queu
                 try:
                     _, label, engine, payload = fut.result()
                     results[widx] = {
-                        "kind": "preset" if engine == "preset" else "elements",
-                        "md": payload if engine == "preset" else None,
-                        "elements": None if engine == "preset" else payload,
+                        # paddle（PaddleOCR-VL）与 preset（Word 直转）一样直接产出 Markdown
+                        "kind": "preset" if engine in ("preset", "paddle") else "elements",
+                        "md": payload if engine in ("preset", "paddle") else None,
+                        "elements": None if engine in ("preset", "paddle") else payload,
                         "qnum": work_items[widx - 1][3],
+                        # 记录该题的原图路径（生成答案时可把原图发给视觉模型）
+                        "imgs": [work_items[widx - 1][1]] if work_items[widx - 1][1] else [],
                     }
-                    engine_label = {"api": "API", "hybrid": "混合", "preset": "直转"}.get(engine, "本地")
+                    engine_label = {"api": "API", "hybrid": "混合", "preset": "直转",
+                                    "paddle": "PaddleOCR"}.get(engine, "本地")
                     log(f"✅ 处理成功（{engine_label}）：{label}")
                 except Exception as e:  # 单项失败不中断整体任务
                     failed.append(label)
@@ -377,16 +414,19 @@ def process_task(task_id: str, output_name: str, font_name: str, log_queue: queu
                                       [r["qnum"] for r in el_items])
 
         question_mds = []
+        question_imgs = []  # 与 question_mds 对齐：每题对应的原图路径列表（可能为空）
         for r in ordered:
             if r["kind"] == "preset":
                 # 直转 Markdown 走与识别结果相同的后处理（选项分行/填空还原，幂等），预览风格一致
                 question_mds.append(restore_fill_blanks(normalize_option_lines(r["md"])))
             else:
                 question_mds.append(elements_to_markdown(r["elements"], str(task_dir)))
+            question_imgs.append(r.get("imgs", []))
 
         # 识别完成：把每题的 Markdown 推给前端预览编辑，
         # 等用户在前端确认后由 /finalize 接口合并生成 Word
         task["question_mds"] = question_mds
+        task["question_imgs"] = question_imgs
         task["failed"] = failed
         # 本任务 API 用量汇总（无 API 识别时为 None）
         task_usage = None
@@ -420,6 +460,8 @@ async def upload(
     split: str = Form("1"),
     pages: str = Form(""),
     docmodes: str = Form(""),
+    enhance: str = Form(""),
+    enhance_config: str = Form(""),
 ):
     """
     接收题目文件（截图 / PDF / Word），保存到临时目录并展开成工作清单，返回任务 ID。
@@ -428,6 +470,9 @@ async def upload(
     split:      "1"（默认）开启一页多题自动拆分，"0" 关闭
     pages:      JSON 数组字符串，与 files 一一对应，仅 PDF 用（"1-5,8"，空 = 全部页）
     docmodes:   JSON 数组字符串，与 files 一一对应，仅 Word 用（"direct" 直转 / "ocr"）
+    enhance:    JSON 数组字符串，与 files 一一对应，每项为图片优化选项数组
+                （"dewm" 去水印 / "white" 转白底 / "sharpen" 清晰化），空数组 = 不优化
+    enhance_config: JSON 字符串，图片优化服务的密钥（TextIn/阿里云/百度），仅内存使用
     """
     cleanup_expired_tasks()
 
@@ -464,6 +509,35 @@ async def upload(
     pages_list = _str_list(pages, len(files), "")
     docmode_list = [m if m in ("direct", "ocr") else "direct"
                     for m in _str_list(docmodes, len(files), "direct")]
+
+    # 解析每文件图片优化选项（dewm 去水印 / white 转白底 / sharpen 清晰化）
+    # 与 files 一一对应，每项为选项数组；非法输入按不优化处理
+    enhance_list = []
+    if enhance:
+        try:
+            parsed_en = json.loads(enhance)
+            if isinstance(parsed_en, list):
+                enhance_list = [
+                    [o for o in (item if isinstance(item, list) else []) if o in VALID_ENHANCE_OPTS]
+                    for item in parsed_en
+                ]
+        except (ValueError, TypeError):
+            logger.warning("enhance 参数解析失败，按全部不优化处理")
+    enhance_list += [[]] * (len(files) - len(enhance_list))
+
+    # 图片优化服务密钥（仅内存使用，不落盘）
+    enhance_cfg = {}
+    if enhance_config:
+        try:
+            parsed_ec = json.loads(enhance_config)
+            if isinstance(parsed_ec, dict):
+                enhance_cfg = {
+                    k: str(parsed_ec.get(k, ""))
+                    for k in ("textin_app_id", "textin_secret", "ali_ak", "ali_sk",
+                              "baidu_ak", "baidu_sk")
+                }
+        except (ValueError, TypeError):
+            logger.warning("enhance_config 参数解析失败，已忽略")
 
     # 解析 API 配置（仅当有题目选择 API 引擎时才需要）
     cfg_dict = {}
@@ -504,7 +578,7 @@ async def upload(
     try:
         plan = await run_in_threadpool(
             _expand_upload_plan, saved, [f.filename for f in files],
-            engine_list, pages_list, docmode_list, task_dir,
+            engine_list, pages_list, docmode_list, task_dir, enhance_list,
         )
     except RuntimeError as e:
         shutil.rmtree(task_dir, ignore_errors=True)
@@ -516,6 +590,7 @@ async def upload(
         "plan": plan,
         "engines": engine_list,
         "api_config": cfg_dict,  # 仅内存保存，任务过期后随 TASKS 一起清除
+        "enhance_config": enhance_cfg,  # 图片优化密钥，同上不落盘
         "split": split != "0",   # 一页多题自动拆分开关
         "orig_names": [f.filename for f in files],  # 原始文件名，历史任务里展示用
         "status": "uploaded",
@@ -584,6 +659,114 @@ async def process(task_id: str, filename: str = "output.docx", font: str = DEFAU
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@app.post("/generate-answers/{task_id}")
+async def gen_answers(task_id: str, request: Request):
+    """
+    为预览中的每道题生成答案与解析（DeepSeek 等纯文本模型，与识别引擎解耦）。
+    请求体 JSON：
+        questions: 当前预览中的每题 Markdown 数组
+        ds_config: {"api_key", "base_url", "model"}（缺省用 DeepSeek 官方预设）
+    返回：
+        { ok, answers_md: [答案块 Markdown 或 null], failed: [题号...], usage }
+        answers_md 与 questions 等长，前端直接追加到对应题目末尾即可
+        （格式由 converter.append_answer 统一定义，学生版剥离依赖同一标记）。
+    """
+    task = TASKS.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期，请重新上传")
+
+    payload = await request.json()
+    raw_questions = [str(q) for q in (payload.get("questions") or [])]
+    # 与每题对应的原图路径列表（识别时持久化；历史任务可能没有该字段）
+    raw_imgs = task.get("question_imgs") or []
+    # 过滤掉被用户清空的题目；question_imgs 按同一规则同步过滤，保持索引对齐。
+    # 重新生成时题目里可能带有上一版答案块，先剥离——既避免旧答案带偏模型，
+    # 也防止前端拼接时出现两版答案并存。
+    questions, question_imgs = [], []
+    for i, q in enumerate(raw_questions):
+        if not q.strip():
+            continue
+        questions.append(strip_answers(q))
+        question_imgs.append(raw_imgs[i] if i < len(raw_imgs) else [])
+    if not questions:
+        raise HTTPException(status_code=400, detail="题目内容为空，无法生成答案。")
+
+    ds = payload.get("ds_config") or {}
+    try:
+        cfg = resolve_ds_config(
+            str(ds.get("api_key") or ""), str(ds.get("base_url") or ""), str(ds.get("model") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        result = await run_in_threadpool(
+            generate_answers, questions, cfg,
+            lambda m: logger.info("[%s] %s", task_id[:8], m),
+            question_imgs,
+        )
+    except Exception as e:
+        logger.error("任务 %s 答案生成失败：%s", task_id, e)
+        raise HTTPException(status_code=500, detail=f"答案生成失败：{e}")
+
+    # 用量累计到本地统计文件（与识别用量同一文件，按模型名区分）
+    for u in result["usages"]:
+        record_api_usage(u)
+
+    # 用统一定义的块引用格式包装答案，前端拼到题目末尾即可被学生版剥离逻辑识别
+    answers_md = [
+        append_answer("", a).strip() if a else None for a in result["answers"]
+    ]
+    return {
+        "ok": True,
+        "answers_md": answers_md,
+        "failed": result["failed"],
+        "usage": result["usage"],
+    }
+
+
+def _build_one_output(task_id: str, task_dir: Path, questions: list, stem: str,
+                      font: str, title_prefix: str, fmt: str,
+                      header: dict | None, footer: dict | None, wm: dict | None) -> dict:
+    """
+    生成单份输出：questions → md → docx（+装饰）→（可选）PDF。
+    返回 {"docx": 路径, "pdf": 路径|None, "pdf_error": str|None}。
+    fmt=pdf 时 PDF 失败直接抛错；both 时降级为仅 Word。
+    """
+    md_path = task_dir / f"{stem}.md"
+    merge_questions(questions, str(md_path), title_prefix)
+    docx_path = task_dir / f"{stem}.docx"
+    logger.info("[%s] 正在调用 Pandoc 生成 Word 文件（%s）……", task_id[:8], stem)
+    markdown_to_docx(str(md_path), str(docx_path), str(task_dir), font)
+    if wm or header or footer:
+        apply_decorations(str(docx_path), header, footer, wm, font)
+        _archive_decor_images(header, footer, wm)
+    result = {"docx": str(docx_path), "pdf": None, "pdf_error": None}
+    if fmt in ("pdf", "both"):
+        pdf_path = task_dir / f"{stem}.pdf"
+        try:
+            docx_to_pdf(str(docx_path), str(pdf_path),
+                        log=lambda m: logger.info("[%s] %s", task_id[:8], m))
+            result["pdf"] = str(pdf_path)
+        except Exception as e:
+            result["pdf_error"] = str(e)
+            logger.error("[%s] PDF 生成失败（%s）：%s", task_id[:8], stem, e)
+            if fmt == "pdf":
+                raise RuntimeError(result["pdf_error"])
+    return result
+
+
+def _teacher_header(header: dict | None, teacher_tag: bool) -> dict | None:
+    """教师版页眉：teacher_tag 开启时在页眉文字前加「教师版（含答案）」标识。"""
+    if not teacher_tag:
+        return header
+    tag = "教师版（含答案）"
+    if header is None:
+        return {"text": tag, "image_bytes": None, "size": 50}
+    text = f"{tag}　{header['text']}" if header["text"] else tag
+    return {**header, "text": text[:100]}
+
+
 @app.post("/finalize/{task_id}")
 async def finalize(task_id: str, request: Request):
     """
@@ -593,6 +776,9 @@ async def finalize(task_id: str, request: Request):
         filename:  输出文件名（缺省 output.docx）
         font:      中文字体（白名单校验）
         title:     标题前缀（缺省"题目"）
+        format:    docx / pdf / both
+        dual:      "1"（默认）题目带答案时生成 学生版+教师版 双版本；"0" 单版本
+        teacher_tag: "1"（默认）教师版页眉加「教师版（含答案）」标识
     """
     task = TASKS.get(task_id)
     if task is None:
@@ -623,47 +809,61 @@ async def finalize(task_id: str, request: Request):
     fmt = str(payload.get("format") or "docx")
     if fmt not in ("docx", "pdf", "both"):
         fmt = "docx"
+    # 双版本导出：dual 开（默认）且题目带答案块时，同时生成 学生版（无答案）与 教师版（含答案）
+    dual = str(payload.get("dual", "1")) != "0"
+    teacher_tag = str(payload.get("teacher_tag", "1")) != "0"
+    want_dual = dual and has_answers(questions)
 
     task_dir = task["dir"]
     try:
-        md_path = task_dir / "questions.md"
-        merge_questions(questions, str(md_path), title_prefix)
-        # docx 总是生成（PDF 由它转换而来，也便于用户补下载 Word 版）
-        docx_path = task_dir / f"{stem}.docx"
-        logger.info("[%s] 正在调用 Pandoc 生成 Word 文件……", task_id[:8])
-        markdown_to_docx(str(md_path), str(docx_path), str(task_dir), font)
-        # 页眉 / 页脚 / 页面水印（可选；PDF 由装饰后的 docx 转换，装饰自动带入）
         wm = normalize_watermark(payload.get("watermark"))
         header = normalize_hf(payload.get("header"))
         footer = normalize_hf(payload.get("footer"))
-        if wm or header or footer:
-            apply_decorations(str(docx_path), header, footer, wm, font)
-            _archive_decor_images(header, footer, wm)
-            logger.info("[%s] 已应用页眉/页脚/水印装饰", task_id[:8])
-        task["docx_path"] = str(docx_path)
-        logger.info("[%s] Word 生成完成：%s.docx", task_id[:8], stem)
 
-        # 按需转换 PDF（Word → WPS → LibreOffice 逐级回退）
-        pdf_error = None
-        if fmt in ("pdf", "both"):
-            pdf_path = task_dir / f"{stem}.pdf"
-            try:
-                docx_to_pdf(str(docx_path), str(pdf_path),
-                            log=lambda m: logger.info("[%s] %s", task_id[:8], m))
-                task["pdf_path"] = str(pdf_path)
-            except Exception as e:
-                pdf_error = str(e)
-                logger.error("[%s] PDF 生成失败：%s", task_id[:8], e)
-                # 用户只想要 PDF 时失败即整体失败；both 则降级为只给 Word
-                if fmt == "pdf":
-                    raise RuntimeError(pdf_error)
+        pdf_errors = []
+        if want_dual:
+            # 教师版：完整内容（含答案），页眉按需加标识
+            teacher = _build_one_output(
+                task_id, task_dir, questions, f"{stem}_教师版", font, title_prefix, fmt,
+                _teacher_header(header, teacher_tag), footer, wm,
+            )
+            # 学生版：剥离答案块（从答案标记行起截断）
+            student_questions = [strip_answers(q) for q in questions]
+            student = _build_one_output(
+                task_id, task_dir, student_questions, f"{stem}_学生版", font, title_prefix, fmt,
+                header, footer, wm,
+            )
+            task["docx_path"] = teacher["docx"]
+            task["docx_student_path"] = student["docx"]
+            task["pdf_path"] = teacher["pdf"]
+            task["pdf_student_path"] = student["pdf"]
+            logger.info("[%s] 双版本生成完成（教师版含答案 / 学生版无答案）", task_id[:8])
+            pdf_errors = [p["pdf_error"] for p in (teacher, student) if p["pdf_error"]]
+        else:
+            single = _build_one_output(
+                task_id, task_dir, questions, stem, font, title_prefix, fmt,
+                header, footer, wm,
+            )
+            task["docx_path"] = single["docx"]
+            task["pdf_path"] = single["pdf"]
+            task["docx_student_path"] = None
+            task["pdf_student_path"] = None
+            logger.info("[%s] Word 生成完成：%s.docx", task_id[:8], stem)
+            pdf_errors = [single["pdf_error"]] if single["pdf_error"] else []
+        pdf_error = "；".join(pdf_errors) if pdf_errors else None
     except HTTPException:
         raise
     except Exception as e:
         logger.error("任务 %s 生成文件失败：%s", task_id, e)
         raise HTTPException(status_code=500, detail=f"生成文件失败：{e}")
 
-    files = {"docx": True, "pdf": bool(task.get("pdf_path"))}
+    files = {
+        "docx": True,
+        "pdf": bool(task.get("pdf_path")),
+        "dual": want_dual,
+        "docx_student": bool(task.get("docx_student_path")),
+        "pdf_student": bool(task.get("pdf_student_path")),
+    }
     # 保存最终版本（含用户编辑）与输出信息，历史任务再导出 / 重启用它恢复
     task["question_mds"] = questions
     task["output_stem"] = stem
@@ -732,6 +932,8 @@ async def preview_doc(task_id: str, request: Request):
         font / title: 与 /finalize 同义
         header / footer: 页眉 / 页脚文字（可空）
         watermark: { type: text|image, text, image(dataURL), size, opacity, angle }
+        version: teacher（默认，完整内容）/ student（剥离答案块，学生版预览）
+        teacher_tag: "1"（默认）教师版页眉加标识，与 /finalize 一致
     返回：{ ok, pages: ["preview_pages/page-1.png", ...] }（经 /task-files 访问）
     """
     task = TASKS.get(task_id)
@@ -751,6 +953,13 @@ async def preview_doc(task_id: str, request: Request):
     wm = normalize_watermark(payload.get("watermark"))
     header = normalize_hf(payload.get("header"))
     footer = normalize_hf(payload.get("footer"))
+    # 学生版预览：剥离答案块；教师版预览：页眉加标识（与导出效果一致）
+    version = str(payload.get("version") or "teacher")
+    if version == "student":
+        questions = [strip_answers(q) for q in questions]
+    else:
+        teacher_tag = str(payload.get("teacher_tag", "1")) != "0"
+        header = _teacher_header(header, teacher_tag)
 
     try:
         pages = await run_in_threadpool(
@@ -812,17 +1021,26 @@ async def task_files(task_id: str, file_path: str):
 
 
 @app.get("/download/{task_id}")
-async def download(task_id: str, kind: str = "docx"):
+async def download(task_id: str, kind: str = "docx", ver: str = "teacher"):
     """
     返回生成的文件（作为附件下载）。
     kind=docx（默认）下载 Word；kind=pdf 下载 PDF（需 /finalize 时选择了 PDF 导出）。
+    ver=teacher（默认）教师版/单版本；ver=student 学生版（双版本导出时存在）。
     """
     task = TASKS.get(task_id)
-    key = "pdf_path" if kind == "pdf" else "docx_path"
-    if task is None or not task.get(key):
+    if task is None:
         raise HTTPException(status_code=404, detail="文件不存在或任务尚未完成")
 
-    file_path = Path(task[key])
+    if kind == "pdf":
+        key = "pdf_student_path" if ver == "student" else "pdf_path"
+    else:
+        key = "docx_student_path" if ver == "student" else "docx_path"
+    # 学生版不存在（未双版本导出）时回退到主版本
+    path_str = task.get(key) or task.get("pdf_path" if kind == "pdf" else "docx_path")
+    if not path_str:
+        raise HTTPException(status_code=404, detail="文件不存在或任务尚未完成")
+
+    file_path = Path(path_str)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件已被清理，请重新处理")
 
@@ -870,6 +1088,12 @@ def _history_summary(task_id: str, task: dict) -> dict:
         "output_stem": task.get("output_stem"),
         "has_docx": bool(task.get("docx_path") and Path(task["docx_path"]).exists()),
         "has_pdf": bool(task.get("pdf_path") and Path(task["pdf_path"]).exists()),
+        "has_docx_student": bool(
+            task.get("docx_student_path") and Path(task["docx_student_path"]).exists()
+        ),
+        "has_pdf_student": bool(
+            task.get("pdf_student_path") and Path(task["pdf_student_path"]).exists()
+        ),
         "api_calls": len(usage),
         "total_tokens": sum(u.get("total_tokens", 0) for u in usage) if usage else 0,
     }

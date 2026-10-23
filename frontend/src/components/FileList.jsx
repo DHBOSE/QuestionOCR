@@ -1,9 +1,9 @@
 // FileList.jsx —— 已选文件列表组件
-// 图片：缩略图 + 引擎选择；PDF：图标 + 页码范围 + 引擎选择；
+// 图片：缩略图 + 引擎选择 + 图片优化勾选；PDF：图标 + 页码范围 + 引擎选择；
 // Word：图标 + 处理模式（直转重排 / OCR 识别），OCR 模式下才显示引擎选择
 // 引擎：本地（离线 Pix2Text）/ API（云端大模型）/ 混合（API 文字公式 + 本地裁剪插图）
 import React from 'react'
-import { Image, Button, Segmented, Tooltip, Input } from 'antd'
+import { Image, Button, Segmented, Tooltip, Input, Checkbox } from 'antd'
 import { DeleteOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons'
 
 // 识别引擎选项（值与后端约定一致：local / api / hybrid）
@@ -31,12 +31,21 @@ const DOCMODE_TIPS = {
   ocr: 'OCR 识别：Word 里嵌的是题目截图时选这个，先转成图片再走识别引擎',
 }
 
+// 图片优化选项（值与后端 image_enhance.py 约定一致）
+const ENHANCE_OPTIONS = [
+  { label: '去水印', value: 'dewm' },
+  { label: '去手写', value: 'erase_hw' },
+  { label: '转白底', value: 'white' },
+  { label: '清晰化', value: 'sharpen' },
+]
+
 export default function FileList({
   files,
   onRemove,
   onEngineChange,
   onPagesChange,
   onDocmodeChange,
+  onEnhanceChange,
   disabled,
 }) {
   if (files.length === 0) return null
@@ -93,6 +102,19 @@ export default function FileList({
                   value={f.engine || 'hybrid'}
                   onChange={(value) => onEngineChange(f.uid, value)}
                   disabled={disabled}
+                />
+              </Tooltip>
+            )}
+            {/* 图片优化（仅图片）：识别前去水印 / 转白底 / 清晰化，密钥在 API 设置里填 */}
+            {kind === 'image' && (
+              <Tooltip title="识别前先优化图片（云端 API，按次计费，密钥在「API 设置 → 图片优化服务」填写）。截图本身干净可不选">
+                <Checkbox.Group
+                  options={ENHANCE_OPTIONS}
+                  value={f.enhance || []}
+                  onChange={(vals) => onEnhanceChange(f.uid, vals)}
+                  disabled={disabled}
+                  style={{ marginTop: 6, fontSize: 12 }}
+                  className="enhance-checks"
                 />
               </Tooltip>
             )}

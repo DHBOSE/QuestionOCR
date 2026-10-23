@@ -23,7 +23,14 @@ const FONT_OPTIONS = [
   { value: '宋体', label: '宋体' },
   { value: '微软雅黑', label: '微软雅黑' },
   { value: '等线', label: '等线' },
+  { value: 'Noto Serif SC', label: '思源宋体' },
 ]
+
+// 重新生成答案前，先剥离题目里已有的旧答案块（ANSWER_MARK 见下方模块级常量）
+const stripAnswerBlock = (q) => {
+  const idx = q.indexOf(ANSWER_MARK)
+  return idx === -1 ? q.trimEnd() : q.slice(0, idx).trimEnd()
+}
 
 // 导出格式选项（PDF 由后端调用本机 Word / WPS / LibreOffice 转换）
 const FORMAT_OPTIONS = [
@@ -32,15 +39,22 @@ const FORMAT_OPTIONS = [
   { value: 'both', label: 'Word + PDF' },
 ]
 
-// 触发浏览器下载（kind: docx / pdf）
-const triggerDownload = (taskId, kind) => {
+// 触发浏览器下载（kind: docx / pdf；ver: teacher 默认 / student 学生版）
+const triggerDownload = (taskId, kind, ver = 'teacher') => {
   const a = document.createElement('a')
-  a.href = `/download/${taskId}?kind=${kind}`
+  a.href = `/download/${taskId}?kind=${kind}&ver=${ver}`
   a.download = ''
   document.body.appendChild(a)
   a.click()
   a.remove()
 }
+
+// 答案块标记（与后端 converter.ANSWER_MARK 保持一致）：
+// 答案以 "> **【答案与解析】**" 开头的块引用追加在每题末尾，学生版据此剥离
+const ANSWER_MARK = '> **【答案与解析】**'
+
+// 是否已有题目带答案块（决定双版本相关 UI 是否出现）
+const hasAnswers = (questions) => (questions || []).some((q) => q.includes(ANSWER_MARK))
 
 export default function App() {
   // 已选文件列表 [{uid, name, raw(File), url(预览地址)}]
@@ -90,9 +104,17 @@ export default function App() {
     opacity: 30,
     angle: -45,
   })
+  // 双版本导出（学生版无答案 + 教师版含答案），默认开；仅题目带答案时生效
+  const [dualVersion, setDualVersion] = useState(true)
+  // 教师版页眉加「教师版（含答案）」标识，默认开
+  const [teacherTag, setTeacherTag] = useState(true)
+  // 正在生成答案（DeepSeek 请求中）
+  const [answering, setAnswering] = useState(false)
 
   // SSE 连接引用，便于组件卸载时关闭
   const eventSourceRef = useRef(null)
+  // 文档预览组件引用：生成答案成功后自动触发文档预览
+  const docPreviewRef = useRef(null)
   // 处理状态引用（粘贴监听里读取最新值，避免闭包过期）
   const statusRef = useRef(status)
   statusRef.current = status
@@ -129,6 +151,7 @@ export default function App() {
         kind: 'image',
         url: URL.createObjectURL(f),
         engine: 'hybrid',
+        enhance: [],
       }))
       setFiles((prev) => [...prev, ...items])
       message.success(`已粘贴 ${items.length} 张截图`)
@@ -177,6 +200,30 @@ export default function App() {
       return
     }
 
+    // 有图片勾选优化项时，校验对应服务商密钥是否已填（缺哪个提示哪个）
+    const usedEnhance = new Set(files.flatMap((f) => f.enhance || []))
+    if (usedEnhance.size > 0) {
+      const missing = []
+      if (usedEnhance.has('white') && (!apiConfig.textinAppId || !apiConfig.textinSecret))
+        missing.push('转白底（TextIn x-app-id / x-secret-code）')
+      if (usedEnhance.has('dewm') && (!apiConfig.aliAk || !apiConfig.aliSk))
+        missing.push('去水印（阿里云 AccessKey ID / Secret）')
+      if (usedEnhance.has('erase_hw')) {
+        const hasBaidu = apiConfig.baiduAk && apiConfig.baiduSk
+        const hasTextin = apiConfig.textinAppId && apiConfig.textinSecret
+        if (!hasBaidu && !hasTextin)
+          missing.push('去手写（百度 API Key / Secret Key，或 TextIn x-app-id / x-secret-code，二选一）')
+      }
+      if (usedEnhance.has('sharpen') && (!apiConfig.baiduAk || !apiConfig.baiduSk))
+        missing.push('清晰化（百度 API Key / Secret Key）')
+      if (missing.length > 0) {
+        setStatus('idle')
+        message.warning(`已勾选图片优化，但缺少密钥：${missing.join('、')}，请在「API 设置 → 图片优化服务」填写`)
+        setApiModalOpen(true)
+        return
+      }
+    }
+
     try {
       // 1. 上传全部文件（附带每文件引擎选择、页码范围、Word 模式与 API 配置）
       const formData = new FormData()
@@ -184,7 +231,21 @@ export default function App() {
       formData.append('engines', JSON.stringify(files.map((f) => f.engine || 'hybrid')))
       formData.append('pages', JSON.stringify(files.map((f) => f.pages || '')))
       formData.append('docmodes', JSON.stringify(files.map((f) => f.docmode || 'direct')))
+      formData.append('enhance', JSON.stringify(files.map((f) => f.enhance || [])))
       formData.append('split', autoSplit ? '1' : '0')
+      if (usedEnhance.size > 0) {
+        formData.append(
+          'enhance_config',
+          JSON.stringify({
+            textin_app_id: apiConfig.textinAppId || '',
+            textin_secret: apiConfig.textinSecret || '',
+            ali_ak: apiConfig.aliAk || '',
+            ali_sk: apiConfig.aliSk || '',
+            baidu_ak: apiConfig.baiduAk || '',
+            baidu_sk: apiConfig.baiduSk || '',
+          }),
+        )
+      }
       if (hasApi) {
         formData.append(
           'api_config',
@@ -255,6 +316,64 @@ export default function App() {
 
   const processing = status === 'processing'
 
+  // 生成答案：把当前预览题目发给 DeepSeek，答案块追加到对应题目末尾（可再编辑）
+  const handleGenAnswers = async () => {
+    if (!taskId || !previewQuestions) return
+    if (!apiConfig.dsKey) {
+      message.warning('请先在「API 设置」的「答案生成（DeepSeek）」区块填写 API Key')
+      setApiModalOpen(true)
+      return
+    }
+    setAnswering(true)
+    pushLog('正在调用 DeepSeek 生成答案与解析……')
+    try {
+      const { data } = await axios.post(`/generate-answers/${taskId}`, {
+        questions: previewQuestions,
+        ds_config: {
+          api_key: apiConfig.dsKey,
+          base_url: apiConfig.dsBaseUrl,
+          model: apiConfig.dsModel,
+        },
+      })
+      const blocks = data.answers_md || []
+      // 先合并答案到题目末尾，再一次性更新状态（自动预览时直接用 merged，
+      // 避免 setState 未生效导致预览里没有答案）
+      const merged = previewQuestions.map((q, i) =>
+        blocks[i] ? `${stripAnswerBlock(q)}\n\n${blocks[i]}` : q,
+      )
+      setPreviewQuestions(merged)
+      const okCount = blocks.filter(Boolean).length
+      if (data.usage) {
+        pushLog(
+          `📊 答案生成用量：${data.usage.calls} 次调用，共 ${data.usage.total_tokens} tokens` +
+          `（输入 ${data.usage.prompt_tokens} + 输出 ${data.usage.completion_tokens}）`,
+        )
+      }
+      if (data.failed?.length) {
+        pushLog(`⚠️ 第 ${data.failed.join('、')} 题答案生成失败，其余 ${okCount} 题已生成`)
+        message.warning(`${data.failed.length} 题答案生成失败，可点击按钮重试`)
+      } else {
+        pushLog(`✅ ${okCount} 道题的答案与解析已生成，追加在每题末尾，可直接编辑。`)
+        message.success('答案已生成并追加到每题末尾')
+      }
+      // 有任一题生成成功：自动弹出文档预览（教师版含答案），无需再点「生成文档预览」
+      if (okCount > 0) {
+        docPreviewRef.current?.refresh(merged)
+        // 平滑滚动到预览区，让用户立刻看到生成过程与结果
+        document.getElementById('doc-preview-section')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail || err.message
+      pushLog(`❌ 答案生成失败：${detail}`)
+      message.error(detail)
+    } finally {
+      setAnswering(false)
+    }
+  }
+
   // 预览编辑确认：把编辑后的每题 Markdown 发给后端生成文件
   const handleFinalize = async () => {
     if (!taskId || !previewQuestions) return
@@ -266,6 +385,9 @@ export default function App() {
         font: fontName,
         title: titlePrefix || '题目',
         format,
+        // 双版本导出（学生版+教师版）与教师版页眉标识
+        dual: dualVersion ? '1' : '0',
+        teacher_tag: teacherTag ? '1' : '0',
         // 页眉 / 页脚（文字+可选图片）/ 水印装饰（水印不透明度 UI 为 5-100，后端用 0-1）
         header: headerSpec,
         footer: footerSpec,
@@ -280,17 +402,25 @@ export default function App() {
         message.warning('PDF 生成失败，已仅导出 Word 文件')
       }
       const label = format === 'pdf' ? 'PDF' : 'Word'
-      pushLog(`✅ ${label} 生成完成，已自动开始下载。`)
+      pushLog(
+        filesOut.dual
+          ? `✅ 双版本 ${label} 生成完成（教师版含答案 / 学生版无答案），已自动开始下载。`
+          : `✅ ${label} 生成完成，已自动开始下载。`,
+      )
       message.success(`${label} 生成完成，已开始下载`)
-      // 生成成功后自动触发浏览器下载；双格式时错开时间避免浏览器拦截
-      if (format === 'pdf') {
-        triggerDownload(taskId, 'pdf')
-      } else if (format === 'both' && filesOut.pdf) {
-        triggerDownload(taskId, 'docx')
-        setTimeout(() => triggerDownload(taskId, 'pdf'), 600)
-      } else {
-        triggerDownload(taskId, 'docx')
+      // 生成成功后自动触发浏览器下载；双版本/双格式时错开时间避免浏览器拦截
+      const jobs = []
+      if (format !== 'pdf') {
+        jobs.push(['docx', 'teacher'])
+        if (filesOut.dual) jobs.push(['docx', 'student'])
       }
+      if (format !== 'docx' && filesOut.pdf) {
+        jobs.push(['pdf', 'teacher'])
+        if (filesOut.dual && filesOut.pdf_student) jobs.push(['pdf', 'student'])
+      }
+      jobs.forEach(([kind, ver], i) =>
+        setTimeout(() => triggerDownload(taskId, kind, ver), i * 600),
+      )
     } catch (err) {
       const detail = err.response?.data?.detail || err.message
       pushLog(`❌ 生成文件失败：${detail}`)
@@ -439,6 +569,56 @@ export default function App() {
             </span>
             <span style={{ color: '#9ca3af', fontSize: 12 }}>生成"{titlePrefix || '题目'} 1"样式标题</span>
           </div>
+          <div className="setting-row">
+            <span className="setting-label">双版本导出：</span>
+            <div className={`checkbox-wrapper${processing ? ' checkbox-disabled' : ''}`}>
+              <label className="toggleButton">
+                <input
+                  type="checkbox"
+                  checked={dualVersion}
+                  onChange={(e) => setDualVersion(e.target.checked)}
+                  disabled={processing}
+                />
+                <div>
+                  <svg viewBox="0 0 44 44">
+                    <path
+                      transform="translate(-2.000000, -2.000000)"
+                      d="M14,24 L21,31 L39.7428882,11.5937758 C35.2809627,6.53125861 30.0333333,4 24,4 C12.95,4 4,12.95 4,24 C4,35.05 12.95,44 24,44 C35.05,44 44,35.05 44,24 C44,19.3 42.5809627,15.1645919 39.7428882,11.5937758"
+                    />
+                  </svg>
+                </div>
+              </label>
+            </div>
+            <span style={{ color: '#9ca3af', fontSize: 12 }}>
+              生成答案后同时导出 学生版（无答案）+ 教师版（含答案）
+            </span>
+          </div>
+          {dualVersion && (
+            <div className="setting-row">
+              <span className="setting-label">教师版标识：</span>
+              <div className={`checkbox-wrapper${processing ? ' checkbox-disabled' : ''}`}>
+                <label className="toggleButton">
+                  <input
+                    type="checkbox"
+                    checked={teacherTag}
+                    onChange={(e) => setTeacherTag(e.target.checked)}
+                    disabled={processing}
+                  />
+                  <div>
+                    <svg viewBox="0 0 44 44">
+                      <path
+                        transform="translate(-2.000000, -2.000000)"
+                        d="M14,24 L21,31 L39.7428882,11.5937758 C35.2809627,6.53125861 30.0333333,4 24,4 C12.95,4 4,12.95 4,24 C4,35.05 12.95,44 24,44 C35.05,44 44,35.05 44,24 C44,19.3 42.5809627,15.1645919 39.7428882,11.5937758"
+                      />
+                    </svg>
+                  </div>
+                </label>
+              </div>
+              <span style={{ color: '#9ca3af', fontSize: 12 }}>
+                教师版页眉标注「教师版（含答案）」，防止发错版本
+              </span>
+            </div>
+          )}
 
           <div style={{ marginTop: 24, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             <GlassButton
@@ -524,11 +704,12 @@ export default function App() {
             </div>
           ))}
           {/* 文档效果预览：页眉 / 页脚 / 水印设置，所见即最终导出效果 */}
-          <div style={{ borderTop: '1px dashed #d1d5db', margin: '4px 0 18px', paddingTop: 16 }}>
+          <div id="doc-preview-section" style={{ borderTop: '1px dashed #d1d5db', margin: '4px 0 18px', paddingTop: 16 }}>
             <div style={{ marginBottom: 12, fontWeight: 600, color: '#374151' }}>
               文档效果预览（页眉 / 页脚 / 水印）
             </div>
             <DocPreview
+              ref={docPreviewRef}
               taskId={taskId}
               questions={previewQuestions}
               font={fontName}
@@ -539,25 +720,46 @@ export default function App() {
               setFooterSpec={setFooterSpec}
               watermark={watermark}
               setWatermark={setWatermark}
+              dual={dualVersion && hasAnswers(previewQuestions)}
+              teacherTag={teacherTag}
             />
           </div>
           <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <GlassButton onClick={handleFinalize} loading={finalizing}>
+            <GlassButton onClick={handleGenAnswers} loading={answering} disabled={finalizing}>
+              {answering
+                ? '生成答案中…'
+                : hasAnswers(previewQuestions)
+                  ? '重新生成答案'
+                  : '生成答案（DeepSeek）'}
+            </GlassButton>
+            <GlassButton onClick={handleFinalize} loading={finalizing} disabled={answering}>
               {finalizing
                 ? '生成中…'
-                : { docx: '生成 Word 文件', pdf: '生成 PDF 文件', both: '生成 Word + PDF' }[
+                : (dualVersion && hasAnswers(previewQuestions)
+                    ? { docx: '生成双版本 Word', pdf: '生成双版本 PDF', both: '生成双版本 Word + PDF' }
+                    : { docx: '生成 Word 文件', pdf: '生成 PDF 文件', both: '生成 Word + PDF' })[
                     format
                   ]}
             </GlassButton>
             {/* 生成成功后预览卡片里也保留下载入口，避免找不到文件 */}
             {status === 'done' && taskId && (resultFiles?.docx ?? true) && (
-              <GlassButton onClick={() => triggerDownload(taskId, 'docx')}>
-                重新下载 Word
+              <GlassButton onClick={() => triggerDownload(taskId, 'docx', 'teacher')}>
+                {resultFiles?.dual ? '下载教师版 Word' : '重新下载 Word'}
+              </GlassButton>
+            )}
+            {status === 'done' && taskId && resultFiles?.docx_student && (
+              <GlassButton onClick={() => triggerDownload(taskId, 'docx', 'student')}>
+                下载学生版 Word
               </GlassButton>
             )}
             {status === 'done' && taskId && resultFiles?.pdf && (
-              <GlassButton onClick={() => triggerDownload(taskId, 'pdf')}>
-                重新下载 PDF
+              <GlassButton onClick={() => triggerDownload(taskId, 'pdf', 'teacher')}>
+                {resultFiles?.dual ? '下载教师版 PDF' : '重新下载 PDF'}
+              </GlassButton>
+            )}
+            {status === 'done' && taskId && resultFiles?.pdf_student && (
+              <GlassButton onClick={() => triggerDownload(taskId, 'pdf', 'student')}>
+                下载学生版 PDF
               </GlassButton>
             )}
           </div>
@@ -580,7 +782,10 @@ export default function App() {
       <HistoryPanel
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        exportSettings={{ filename: outputName, font: fontName, title: titlePrefix, format }}
+        exportSettings={{
+          filename: outputName, font: fontName, title: titlePrefix, format,
+          dual: dualVersion, teacherTag,
+        }}
       />
       </div>
     </div>

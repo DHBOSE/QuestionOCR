@@ -208,6 +208,7 @@ _FONT_FILES = {
     "宋体": "simsun.ttc",
     "微软雅黑": "msyh.ttc",
     "等线": "Deng.ttf",
+    "Noto Serif SC": "NotoSerifSC-VF.ttf",  # 思源宋体（Google Noto 版）
 }
 _FONT_FALLBACKS = ["msyh.ttc", "simsun.ttc", "simhei.ttf", "arial.ttf"]
 

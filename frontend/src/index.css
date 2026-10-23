@@ -68,10 +68,7 @@ body {
   transform: scale(1.02);
 }
 
-.main-card:active {
-  transform: scale(0.98) rotateZ(0.6deg);
-  transition: all 0.15s;
-}
+/* 点击卡片无位移/弹跳：保持静止，仅保留悬停反馈 */
 
 /* 第二行两栏布局：左输出设置 / 右处理进度（第一行上传为整行卡片） */
 .row-grid {
@@ -646,6 +643,31 @@ body {
   margin: 0 0 8px;
 }
 
+/* 答案与解析块（Markdown blockquote）：与题目正文明显区分 */
+.question-preview blockquote {
+  margin: 10px 0 4px;
+  padding: 8px 12px;
+  background: #f0f4ff;
+  border-left: 4px solid #15009c;
+  border-radius: 0 6px 6px 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.question-preview blockquote p {
+  margin: 0 0 4px;
+}
+
+.question-preview blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* 「答案与解析」标题强调 */
+.question-preview blockquote strong {
+  color: #15009c;
+}
+
 /* 预览中的插图：限宽显示，保持比例 */
 .question-preview img {
   max-width: 100%;
@@ -961,4 +983,11 @@ body {
   .app-sidebar {
     display: none;
   }
+}
+
+/* 文件卡片上的图片优化勾选：紧凑小号，首个不留左边距 */
+.enhance-checks .ant-checkbox-wrapper {
+  font-size: 12px;
+  margin-inline-start: 0 !important;
+  margin-right: 6px;
 }

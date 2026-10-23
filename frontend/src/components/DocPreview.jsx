@@ -3,8 +3,8 @@
 // 水印：文字 / 图片两种，均可调 大小、不透明度、角度。
 // 点击「生成文档预览」后，后端把当前编辑内容生成 docx（含装饰），
 // 经本机 Word/WPS 转成 PDF 再渲染为逐页图片返回，所见即最终导出效果。
-import React, { useEffect, useState } from 'react'
-import { Input, Select, Slider, Upload, message } from 'antd'
+import React, { useEffect, useImperativeHandle, useState, forwardRef } from 'react'
+import { Input, Segmented, Select, Slider, Upload, message } from 'antd'
 import axios from 'axios'
 import GlassButton from './GlassButton'
 
@@ -145,7 +145,7 @@ function HFEditor({ label, spec, setSpec, assets }) {
   )
 }
 
-export default function DocPreview({
+const DocPreview = forwardRef(function DocPreview({
   taskId,
   questions,
   font,
@@ -156,11 +156,15 @@ export default function DocPreview({
   setFooterSpec,
   watermark,
   setWatermark,
-}) {
+  dual = false,       // 题目已带答案且开启双版本：预览可切换 学生版 / 教师版
+  teacherTag = true,  // 教师版页眉标识开关（与导出效果一致）
+}, ref) {
   // 预览页图片相对路径列表；stamp 用于强制浏览器刷新同名图片
   const [pages, setPages] = useState([])
   const [stamp, setStamp] = useState(0)
   const [loading, setLoading] = useState(false)
+  // 预览版本：teacher 教师版（含答案）/ student 学生版（无答案）
+  const [version, setVersion] = useState('teacher')
   // 素材库：上传过的水印 / 页眉 / 页脚图片（后端自动入库，这里列出供复用）
   const [assets, setAssets] = useState([])
 
@@ -180,18 +184,21 @@ export default function DocPreview({
   // 局部更新水印设置
   const setWm = (patch) => setWatermark((prev) => ({ ...prev, ...patch }))
 
-  // 生成 / 刷新文档预览
-  const handlePreview = async () => {
-    if (!taskId || !questions?.length) return
+  // 生成 / 刷新文档预览（ver 指定预览学生版还是教师版；qs 可传入最新题目，
+  // 供生成答案后自动预览时绕过 React 状态更新延迟，默认用 props 里的 questions）
+  const handlePreview = async (ver = version, qs = questions) => {
+    if (!taskId || !qs?.length) return
     setLoading(true)
     try {
       const { data } = await axios.post(`/preview-doc/${taskId}`, {
-        questions,
+        questions: qs,
         font,
         title,
         header: headerSpec,
         footer: footerSpec,
         watermark: { ...watermark, opacity: watermark.opacity / 100 },
+        version: dual ? ver : 'teacher',
+        teacher_tag: teacherTag ? '1' : '0',
       })
       setPages(data.pages || [])
       setStamp(Date.now())
@@ -204,6 +211,18 @@ export default function DocPreview({
       setLoading(false)
     }
   }
+
+  // 双版本下切换 学生版 / 教师版 Tab：重新生成对应版本的预览
+  const handleVersionChange = (ver) => {
+    setVersion(ver)
+    if (pages.length > 0) handlePreview(ver)
+  }
+
+  // 暴露给父组件：生成答案成功后自动弹出文档预览，无需再点按钮
+  // qs：已追加答案的最新题目数组（此时 props 中的 questions 尚未刷新）
+  useImperativeHandle(ref, () => ({
+    refresh: (qs) => handlePreview(version, qs || questions),
+  }))
 
   return (
     <div>
@@ -296,10 +315,22 @@ export default function DocPreview({
       )}
 
       {/* 生成预览按钮与提示 */}
-      <div style={{ display: 'flex', gap: 14, alignItems: 'center', margin: '6px 0 14px' }}>
-        <GlassButton onClick={handlePreview} loading={loading}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', margin: '6px 0 14px', flexWrap: 'wrap' }}>
+        <GlassButton onClick={() => handlePreview()} loading={loading}>
           {loading ? '生成预览中…' : pages.length ? '刷新文档预览' : '生成文档预览'}
         </GlassButton>
+        {/* 双版本：学生版（无答案）/ 教师版（含答案）预览切换 */}
+        {dual && (
+          <Segmented
+            value={version}
+            onChange={handleVersionChange}
+            options={[
+              { value: 'teacher', label: '教师版（含答案）' },
+              { value: 'student', label: '学生版（无答案）' },
+            ]}
+            disabled={loading}
+          />
+        )}
         <span style={{ color: '#9ca3af', fontSize: 12 }}>
           预览 = 最终导出效果（经本机 Word/WPS 转换渲染，约需几秒）
         </span>
@@ -336,4 +367,6 @@ export default function DocPreview({
       )}
     </div>
   )
-}
+})
+
+export default DocPreview

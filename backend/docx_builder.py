@@ -17,7 +17,7 @@ from pathlib import Path
 from procutil import run_quiet
 
 # 可选中文字体（写入 docx 的 w:eastAsia 属性），与前端下拉框保持一致
-AVAILABLE_FONTS = ["仿宋", "黑体", "楷体", "宋体", "微软雅黑", "等线"]
+AVAILABLE_FONTS = ["仿宋", "黑体", "楷体", "宋体", "微软雅黑", "等线", "Noto Serif SC"]
 DEFAULT_FONT = "仿宋"
 
 # 项目内置便携版 Pandoc 的候选路径（Windows / macOS / Linux）

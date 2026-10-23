@@ -289,6 +289,8 @@ def merge_figure_only_items(items: list) -> list:
         if (not has_text and out and out[-1]["kind"] == "elements"
                 and r["kind"] == "elements"):
             out[-1]["elements"] = out[-1]["elements"] + r["elements"]
+            # 原图路径一并并入（生成答案时该题可能对应多张原图）
+            out[-1]["imgs"] = out[-1].get("imgs", []) + r.get("imgs", [])
             merges += 1
             continue
         out.append(r)
@@ -470,3 +472,37 @@ def merge_questions(question_mds: list, md_path: str, title_prefix: str = "题�
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(merged, encoding="utf-8")
     return merged
+
+
+# ---------------------------------------------------------------------------
+# 答案标记（学生版 / 教师版拆分依据）
+# 答案生成后追加在每题 Markdown 末尾，块引用形式在 Word 中缩进显示以示区别：
+#   > **【答案与解析】**
+#   > 答案：...
+#   > 解析：...
+# 学生版导出时从首个 "> **【答案与解析】**" 行起截断（用户在预览里的手改只要
+# 不删掉这一标记行都有效）。
+# ---------------------------------------------------------------------------
+ANSWER_MARK = "> **【答案与解析】**"
+
+
+def append_answer(question_md: str, answer_md: str) -> str:
+    """把生成的答案/解析文本以块引用形式追加到题目 Markdown 末尾。"""
+    lines = [ANSWER_MARK]
+    for ln in answer_md.strip().splitlines():
+        ln = ln.strip()
+        lines.append(">" if not ln else f"> {ln}")
+    return question_md.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+
+
+def strip_answers(question_md: str) -> str:
+    """学生版用：去掉题目末尾的答案块（从答案标记行起到本题结束）。"""
+    idx = question_md.find(ANSWER_MARK)
+    if idx == -1:
+        return question_md
+    return question_md[:idx].rstrip() + "\n"
+
+
+def has_answers(question_mds: list) -> bool:
+    """是否至少有一道题带答案块（决定能否双版本导出 / 预览）。"""
+    return any(ANSWER_MARK in q for q in question_mds)

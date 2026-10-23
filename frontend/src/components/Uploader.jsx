@@ -35,6 +35,7 @@ export default function Uploader({ files, setFiles, disabled }) {
       engine: kind === 'docx' ? 'local' : 'hybrid',
       pages: '',          // 仅 PDF：页码范围，如 1-5,8（空 = 全部）
       docmode: 'direct',  // 仅 Word：direct 直转重排 / ocr 截图识别
+      enhance: [],        // 图片优化选项（去水印/转白底/清晰化），默认不优化
     }
     setFiles((prev) => [...prev, item])
     return false // 阻止 antd 自动上传
@@ -64,6 +65,11 @@ export default function Uploader({ files, setFiles, disabled }) {
     setFiles((prev) => prev.map((f) => (f.uid === uid ? { ...f, docmode } : f)))
   }
 
+  // 勾选图片优化项（去水印 / 转白底 / 清晰化，空数组 = 不优化）
+  const changeEnhance = (uid, enhance) => {
+    setFiles((prev) => prev.map((f) => (f.uid === uid ? { ...f, enhance } : f)))
+  }
+
   return (
     <div>
       <Dragger
@@ -90,6 +96,7 @@ export default function Uploader({ files, setFiles, disabled }) {
         onEngineChange={changeEngine}
         onPagesChange={changePages}
         onDocmodeChange={changeDocmode}
+        onEnhanceChange={changeEnhance}
         disabled={disabled}
       />
     </div>
